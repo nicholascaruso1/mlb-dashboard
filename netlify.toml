@@ -1,0 +1,5 @@
+[[redirects]]
+  from = "/odds-api/*"
+  to = "https://api.the-odds-api.com/:splat"
+  status = 200
+  force = true
