@@ -161,7 +161,25 @@ function analyze(game) {
   const con=game.consensus||{};
   const conScore=con.total>0?con.agree/con.total:0;
   const sharpScore=con.sharpTotal>0?con.sharpAgree/con.sharpTotal:0;
-  // Enhanced signal using consensus
+
+  // ── ML Vacuum: favorite priced beyond -800 → ML handle signal unreliable ──
+  const mlVacuum = mlP != null && mlP < -800;
+
+  // ── Implied Team Totals from spread + O/U ──
+  const spreadMag = sp.away_line!=null && sp.home_line!=null
+    ? Math.abs(lh ? sp.home_line : sp.away_line)
+    : null;
+  const impliedTotals = (spreadMag!=null && ou.total!=null) ? {
+    fav:  Math.round(((ou.total + spreadMag) / 2) * 10) / 10,
+    dog:  Math.round(((ou.total - spreadMag) / 2) * 10) / 10,
+    spread: spreadMag,
+    // Flag dog as potentially underpriced when dog implied < 10 on large spreads
+    dogUnderpricedFlag: ((ou.total - spreadMag) / 2) < 10 && spreadMag > 20,
+    // Mild flag: dog implied < 15 on spread > 14
+    dogMildFlag: ((ou.total - spreadMag) / 2) < 15 && spreadMag > 14,
+  } : null;
+
+  // Enhanced signal using consensus (MARKET tag softened when ML vacuum active)
   const sig = impl>0.60&&bets[0].edge>0.03&&sharpScore>=1.0 ? 4
             : impl>0.54&&bets[0].edge>0.01&&conScore>=0.6   ? 3
             : impl>0.51&&conScore>=0.5                       ? 2 : 1;
@@ -172,9 +190,9 @@ function analyze(game) {
     MARKET:  impl>0.54,
     CONFIRM: gap<0.15 && conScore>=0.6,
     VALUE:   bets[0].edge>0.01,
-    STEAM:   lm.hasData && lm.ml<-3,  // line moved 3+ cents toward lean = steam
+    STEAM:   lm.hasData && lm.ml<-3,
   };
-  return {optimal:bets[0],bets,sig,tags,impl,conScore,sharpScore};
+  return {optimal:bets[0],bets,sig,tags,impl,conScore,sharpScore,mlVacuum,impliedTotals};
 }
 
 // ─── Colors ───────────────────────────────────────────────────────────────────
@@ -304,63 +322,173 @@ function SideCard({label,pin,dk,isLean}){
   );
 }
 
-function MLView({game}){
+function MLView({game, mlVacuum, myPrice, onMyPriceChange}){
   const lh=game.lean===game.home;const ml=game.ml||{};
+  const leanPin = lh?ml.home_pin:ml.away_pin;
+  const leanDk  = lh?ml.home_dk:ml.away_dk;
   return(
-    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 60px 80px",gap:8,alignItems:"start"}}>
-      <div>
-        <div style={{fontSize:9,color:C.textMuted,marginBottom:5}}>LEAN ML</div>
-        <div style={{fontSize:9,color:C.textMuted,display:"flex",gap:16,marginBottom:3}}><span>PIN</span><span>DK</span></div>
-        <div style={{display:"flex",gap:12,fontFamily:"monospace",fontSize:14,fontWeight:700}}>
-          <span style={{color:C.textDim}}>{fmt(lh?ml.home_pin:ml.away_pin)}</span>
-          <span style={{color:C.positive}}>{fmt(lh?ml.home_dk:ml.away_dk)}</span>
+    <div>
+      {mlVacuum && (
+        <div style={{background:"rgba(245,158,11,0.06)",border:"1px solid rgba(245,158,11,0.2)",borderRadius:7,padding:"7px 10px",marginBottom:10,display:"flex",gap:6,alignItems:"flex-start"}}>
+          <span style={{fontSize:10}}>⚠</span>
+          <span style={{fontSize:9,color:"#f59e0b",lineHeight:1.4}}>
+            Favorite ML beyond -800 — external handle/ticket splits may reflect a pricing vacuum, not genuine sharp action. Spread movement is a more reliable signal here.
+          </span>
+        </div>
+      )}
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 60px 80px",gap:8,alignItems:"start"}}>
+        <div>
+          <div style={{fontSize:9,color:C.textMuted,marginBottom:5}}>LEAN ML</div>
+          <div style={{fontSize:9,color:C.textMuted,display:"flex",gap:16,marginBottom:3}}><span>PIN</span><span>DK</span></div>
+          <div style={{display:"flex",gap:12,fontFamily:"monospace",fontSize:14,fontWeight:700}}>
+            <span style={{color:C.textDim}}>{fmt(leanPin)}</span>
+            <span style={{color:C.positive}}>{fmt(leanDk)}</span>
+          </div>
+        </div>
+        <div>
+          <div style={{fontSize:9,color:C.textMuted,marginBottom:5}}>OPP ML</div>
+          <div style={{fontSize:9,color:C.textMuted,display:"flex",gap:16,marginBottom:3}}><span>PIN</span><span>DK</span></div>
+          <div style={{display:"flex",gap:12,fontFamily:"monospace",fontSize:14,fontWeight:700}}>
+            <span style={{color:C.textMuted}}>{fmt(lh?ml.away_pin:ml.home_pin)}</span>
+            <span style={{color:C.textMuted}}>{fmt(lh?ml.away_dk:ml.home_dk)}</span>
+          </div>
+        </div>
+        <div>
+          <div style={{fontSize:9,color:C.textMuted,marginBottom:5}}>TOTAL</div>
+          <div style={{fontFamily:"monospace",fontSize:16,fontWeight:700,color:C.textDim,marginTop:8}}>{game.ou?.total??"—"}</div>
+        </div>
+        <div>
+          <div style={{fontSize:9,color:C.textMuted,marginBottom:5}}>IMPLIED</div>
+          <div style={{fontFamily:"monospace",fontSize:16,fontWeight:700,color:C.text,marginTop:8}}>{(iProb(leanPin)*100).toFixed(1)}%</div>
         </div>
       </div>
-      <div>
-        <div style={{fontSize:9,color:C.textMuted,marginBottom:5}}>OPP ML</div>
-        <div style={{fontSize:9,color:C.textMuted,display:"flex",gap:16,marginBottom:3}}><span>PIN</span><span>DK</span></div>
-        <div style={{display:"flex",gap:12,fontFamily:"monospace",fontSize:14,fontWeight:700}}>
-          <span style={{color:C.textMuted}}>{fmt(lh?ml.away_pin:ml.home_pin)}</span>
-          <span style={{color:C.textMuted}}>{fmt(lh?ml.away_dk:ml.home_dk)}</span>
+      <BookPriceInput pinPrice={leanPin} dkPrice={leanDk} label={`${game.lean} ML`} value={myPrice} onChange={onMyPriceChange}/>
+    </div>
+  );
+}
+function SpreadView({game, myPrice, onMyPriceChange}){
+  const lh=game.lean===game.home;const sp=game.spread||{};
+  const leanPin = lh?sp.home_pin:sp.away_pin;
+  const leanDk  = lh?sp.home_dk:sp.away_dk;
+  const leanLine = lh?sp.home_line:sp.away_line;
+  return(<div>
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+      <SideCard label={`${game.away} ${fmt(sp.away_line)}`} pin={sp.away_pin} dk={sp.away_dk} isLean={!lh}/>
+      <SideCard label={`${game.home} ${fmt(sp.home_line)}`} pin={sp.home_pin} dk={sp.home_dk} isLean={lh}/>
+    </div>
+    <BookPriceInput pinPrice={leanPin} dkPrice={leanDk} label={`${game.lean} ${leanLine>0?"+":""}${leanLine}`} value={myPrice} onChange={onMyPriceChange}/>
+  </div>);
+}
+// ─── Implied Totals Row ───────────────────────────────────────────────────────
+function ImpliedTotalsRow({impliedTotals, leanTeam, dogTeam}) {
+  if (!impliedTotals) return null;
+  const {fav, dog, dogUnderpricedFlag, dogMildFlag} = impliedTotals;
+  const dogColor = dogUnderpricedFlag ? "#f87171" : dogMildFlag ? "#f59e0b" : C.textDim;
+  const dogBg    = dogUnderpricedFlag ? "rgba(248,113,113,0.06)" : dogMildFlag ? "rgba(245,158,11,0.06)" : "#0c1210";
+  const dogBorder= dogUnderpricedFlag ? "rgba(248,113,113,0.25)" : dogMildFlag ? "rgba(245,158,11,0.25)" : C.cardBorder;
+  return (
+    <div style={{marginBottom:10}}>
+      <div style={{fontSize:9,color:C.textMuted,letterSpacing:"0.08em",marginBottom:6}}>IMPLIED TEAM TOTALS</div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+        <div style={{background:"#0c1210",border:`1px solid ${C.cardBorder}`,borderRadius:7,padding:"8px 11px"}}>
+          <div style={{fontSize:9,color:C.positive,marginBottom:4}}>▲ FAV · {leanTeam}</div>
+          <div style={{fontFamily:"monospace",fontSize:20,fontWeight:800,color:C.text}}>{fav}</div>
+          <div style={{fontSize:8,color:C.textMuted,marginTop:3}}>(Total + Spread) / 2</div>
         </div>
-      </div>
-      <div>
-        <div style={{fontSize:9,color:C.textMuted,marginBottom:5}}>TOTAL</div>
-        <div style={{fontFamily:"monospace",fontSize:16,fontWeight:700,color:C.textDim,marginTop:8}}>{game.ou?.total??"—"}</div>
-      </div>
-      <div>
-        <div style={{fontSize:9,color:C.textMuted,marginBottom:5}}>IMPLIED</div>
-        <div style={{fontFamily:"monospace",fontSize:16,fontWeight:700,color:C.text,marginTop:8}}>{(iProb(lh?ml.home_pin:ml.away_pin)*100).toFixed(1)}%</div>
+        <div style={{background:dogBg,border:`1px solid ${dogBorder}`,borderRadius:7,padding:"8px 11px"}}>
+          <div style={{fontSize:9,color:dogColor,marginBottom:4}}>▼ DOG · {dogTeam}</div>
+          <div style={{fontFamily:"monospace",fontSize:20,fontWeight:800,color:dogColor}}>{dog}</div>
+          <div style={{fontSize:8,color:C.textMuted,marginTop:3}}>(Total − Spread) / 2</div>
+          {dogUnderpricedFlag && <div style={{fontSize:8,color:"#f87171",marginTop:4,fontWeight:700}}>⚠ Possibly underpriced</div>}
+          {dogMildFlag && !dogUnderpricedFlag && <div style={{fontSize:8,color:"#f59e0b",marginTop:4,fontWeight:700}}>~ Check dog scoring</div>}
+        </div>
       </div>
     </div>
   );
 }
-function SpreadView({game}){
-  const lh=game.lean===game.home;const sp=game.spread||{};
-  return(<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-    <SideCard label={`${game.away} ${fmt(sp.away_line)}`} pin={sp.away_pin} dk={sp.away_dk} isLean={!lh}/>
-    <SideCard label={`${game.home} ${fmt(sp.home_line)}`} pin={sp.home_pin} dk={sp.home_dk} isLean={lh}/>
-  </div>);
+
+// ─── Your Book Price Input ────────────────────────────────────────────────────
+function BookPriceInput({pinPrice, dkPrice, label, value, onChange}) {
+  const raw = value.trim();
+  const parsed = raw === "" ? null : raw.startsWith("+") ? parseInt(raw) : parseInt(raw);
+  const valid  = parsed != null && !isNaN(parsed) && parsed !== 0 && !(parsed > -100 && parsed < 100);
+  const myEdge    = valid ? (edge(pinPrice, parsed) * 100).toFixed(2) : null;
+  const dkEdge    = dkPrice ? (edge(pinPrice, dkPrice) * 100).toFixed(2) : null;
+  const clvDelta  = (valid && dkEdge != null) ? (parseFloat(myEdge) - parseFloat(dkEdge)).toFixed(2) : null;
+  const breakeven = valid ? (iProb(parsed) * 100).toFixed(1) : null;
+  const hasGain   = clvDelta != null && parseFloat(clvDelta) > 0;
+  const hasEdge   = myEdge != null && parseFloat(myEdge) > 0;
+
+  return (
+    <div style={{marginTop:12,background:"#0a0f0e",border:`1px solid ${hasGain?"rgba(110,231,183,0.2)":C.cardBorder}`,borderRadius:8,padding:"10px 12px"}}>
+      <div style={{fontSize:9,color:C.textMuted,letterSpacing:"0.08em",marginBottom:8}}>YOUR BOOK · {label}</div>
+      <div style={{display:"flex",gap:8,alignItems:"center",marginBottom: valid ? 10 : 0}}>
+        <input
+          type="text"
+          placeholder="e.g. +100 or -108"
+          value={value}
+          onChange={e=>onChange(e.target.value)}
+          style={{
+            flex:1, background:"#0c1210", border:`1px solid ${valid?C.positiveBorder:C.cardBorder}`,
+            borderRadius:6, color:C.text, fontSize:13, fontWeight:700,
+            fontFamily:"monospace", padding:"6px 10px", outline:"none",
+            caretColor:C.positive,
+          }}
+        />
+        {valid && <span style={{fontSize:11,color:hasEdge?C.positive:"#f87171",fontWeight:700,fontFamily:"monospace",whiteSpace:"nowrap"}}>
+          {hasEdge ? `+${myEdge}%` : `${myEdge}%`} edge
+        </span>}
+      </div>
+      {valid && (
+        <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+          <div style={{background:"#0c1210",border:`1px solid ${C.cardBorder}`,borderRadius:5,padding:"4px 8px"}}>
+            <span style={{fontSize:8,color:C.textMuted}}>BREAKEVEN </span>
+            <span style={{fontSize:10,fontWeight:700,fontFamily:"monospace",color:C.textDim}}>{breakeven}%</span>
+          </div>
+          {dkEdge != null && (
+            <div style={{background:"#0c1210",border:`1px solid ${C.cardBorder}`,borderRadius:5,padding:"4px 8px"}}>
+              <span style={{fontSize:8,color:C.textMuted}}>DK EDGE </span>
+              <span style={{fontSize:10,fontWeight:700,fontFamily:"monospace",color:C.textDim}}>{parseFloat(dkEdge)>0?`+${dkEdge}%`:`${dkEdge}%`}</span>
+            </div>
+          )}
+          {clvDelta != null && (
+            <div style={{background:hasGain?"rgba(110,231,183,0.06)":"rgba(248,113,113,0.06)",border:`1px solid ${hasGain?C.positiveBorder:"rgba(248,113,113,0.2)"}`,borderRadius:5,padding:"4px 8px"}}>
+              <span style={{fontSize:8,color:C.textMuted}}>CLV vs DK </span>
+              <span style={{fontSize:10,fontWeight:700,fontFamily:"monospace",color:hasGain?C.positive:"#f87171"}}>{hasGain?`+${clvDelta}%`:`${clvDelta}%`}</span>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
-function OUView({game}){
+
+function OUView({game, impliedTotals, myPrice, onMyPriceChange}){
   const ou=game.ou||{};
   const oe=edge(ou.over_pin,ou.over_dk),ue=edge(ou.under_pin,ou.under_dk);
   const best=oe>=ue?"OVER":"UNDER";
+  const lh=game.lean===game.home;
+  const bestPin = best==="OVER" ? ou.over_pin : ou.under_pin;
+  const bestDk  = best==="OVER" ? ou.over_dk  : ou.under_dk;
   return(<div>
     <div style={{fontSize:9,color:C.textMuted,marginBottom:8}}>TOTAL <span style={{fontSize:20,color:C.text,fontFamily:"monospace",fontWeight:700,marginLeft:6}}>{ou.total}</span></div>
+    <ImpliedTotalsRow impliedTotals={impliedTotals} leanTeam={game.lean} dogTeam={lh?game.away:game.home}/>
     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
       <SideCard label={`OVER ${ou.total}`}  pin={ou.over_pin}  dk={ou.over_dk}  isLean={best==="OVER"}/>
       <SideCard label={`UNDER ${ou.total}`} pin={ou.under_pin} dk={ou.under_dk} isLean={best==="UNDER"}/>
     </div>
+    <BookPriceInput pinPrice={bestPin} dkPrice={bestDk} label={`${best} ${ou.total}`} value={myPrice} onChange={onMyPriceChange}/>
   </div>);
 }
 
 function GameCard({rawGame}){
   const [tab,setTab]=useState("ML");
-  const {optimal,bets,sig,tags}=analyze(rawGame);
+  const [myPrices,setMyPrices]=useState({ML:"",SPREAD:"","O/U":""});
+  const {optimal,bets,sig,tags,mlVacuum,impliedTotals}=analyze(rawGame);
   const lh=rawGame.lean===rawGame.home;
   const mlP=lh?rawGame.ml?.home_pin:rawGame.ml?.away_pin;
   const steamDetected=rawGame.lineMove?.hasData&&rawGame.lineMove?.ml<-3;
+  const setMyPrice = (t,v) => setMyPrices(p=>({...p,[t]:v}));
 
   return(
     <div style={{background:steamDetected?"rgba(248,113,113,0.04)":C.card,border:`1px solid ${steamDetected?"rgba(248,113,113,0.2)":C.cardBorder}`,borderRadius:12,padding:"14px 14px 12px",marginBottom:10}}>
@@ -389,9 +517,9 @@ function GameCard({rawGame}){
       <BetTabs active={tab} onChange={setTab} bets={bets}/>
 
       <div style={{marginBottom:12}}>
-        {tab==="ML"&&<MLView game={rawGame}/>}
-        {tab==="SPREAD"&&<SpreadView game={rawGame}/>}
-        {tab==="O/U"&&<OUView game={rawGame}/>}
+        {tab==="ML"    &&<MLView     game={rawGame} mlVacuum={mlVacuum} myPrice={myPrices.ML}     onMyPriceChange={v=>setMyPrice("ML",v)}/>}
+        {tab==="SPREAD"&&<SpreadView game={rawGame}                     myPrice={myPrices.SPREAD} onMyPriceChange={v=>setMyPrice("SPREAD",v)}/>}
+        {tab==="O/U"   &&<OUView     game={rawGame} impliedTotals={impliedTotals} myPrice={myPrices["O/U"]} onMyPriceChange={v=>setMyPrice("O/U",v)}/>}
       </div>
 
       <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
