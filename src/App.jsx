@@ -26,6 +26,57 @@ function abbr(name) {
   const words = name.split(" ");
   return words[words.length-1].slice(0,3).toUpperCase();
 }
+
+// ── Display names: show school identity, not mascot abbreviation ──────────────
+const COLLEGE_DISPLAY_MAP = {
+  "Penn State Nittany Lions":"Penn State","Georgia Tech Yellow Jackets":"Georgia Tech",
+  "North Texas Mean Green":"North Texas","Louisiana State Tigers":"LSU",
+  "Texas A&M Aggies":"Texas A&M","Ole Miss Rebels":"Ole Miss",
+  "Mississippi State Bulldogs":"Miss. State","North Carolina Tar Heels":"N. Carolina",
+  "North Carolina State Wolfpack":"NC State","Ohio State Buckeyes":"Ohio State",
+  "Oregon State Beavers":"Oregon State","Michigan State Spartans":"Michigan St.",
+  "Western Michigan Broncos":"W. Michigan","Eastern Michigan Eagles":"E. Michigan",
+  "South Carolina Gamecocks":"S. Carolina","Utah State Aggies":"Utah State",
+  "Florida State Seminoles":"Florida St.","Kansas State Wildcats":"Kansas State",
+  "Oklahoma State Cowboys":"Okla. State","Iowa State Cyclones":"Iowa State",
+  "Arizona State Sun Devils":"Arizona St.","Washington State Cougars":"Wash. State",
+  "Central Florida Knights":"UCF","Florida International Panthers":"FIU",
+  "Florida Atlantic Owls":"Florida Atl","Southern California Trojans":"USC",
+  "Notre Dame Fighting Irish":"Notre Dame","Miami Hurricanes":"Miami (FL)",
+  "Miami RedHawks":"Miami (OH)","Bowling Green Falcons":"Bowling Green",
+  "San Jose State Spartans":"San José St.","Fresno State Bulldogs":"Fresno State",
+  "Appalachian State Mountaineers":"App. State","Colorado State Rams":"Colorado St.",
+  "New Mexico State Aggies":"NM State","Kennesaw State Owls":"Kennesaw St.",
+  "Tarleton State Texans":"Tarleton St.","McNeese State Cowboys":"McNeese St.",
+  "Middle Tennessee Blue Raiders":"Mid. Tenn.","Western Kentucky Hilltoppers":"W. Kentucky",
+  "Eastern Kentucky Colonels":"E. Kentucky","Western Carolina Catamounts":"W. Carolina",
+  "Eastern Washington Eagles":"E. Washington","North Dakota State Bison":"NDSU",
+  "South Dakota State Jackrabbits":"SDSU","Jacksonville State Gamecocks":"Jax. State",
+  "Sam Houston Bearkats":"Sam Houston","Austin Peay Governors":"Austin Peay",
+};
+
+const TWO_WORD_MASCOTS = new Set([
+  "Nittany Lions","Mean Green","Yellow Jackets","Golden Eagles","Red Raiders",
+  "Horned Frogs","Demon Deacons","Sun Devils","Fighting Irish","Golden Bears",
+  "Blue Raiders","Mountain Hawks","Running Rebels","Ragin Cajuns","Black Bears",
+]);
+
+function displayName(fullName) {
+  if (!fullName) return "";
+  // Pro sports — already have clean abbreviations, use as-is
+  if (TEAM_ABBR[fullName]) return TEAM_ABBR[fullName];
+  // College explicit map
+  if (COLLEGE_DISPLAY_MAP[fullName]) return COLLEGE_DISPLAY_MAP[fullName];
+  // Smart strip: remove mascot word(s) from end
+  const words = fullName.split(" ");
+  if (words.length >= 3) {
+    const lastTwo = words.slice(-2).join(" ");
+    if (TWO_WORD_MASCOTS.has(lastTwo)) return words.slice(0, -2).join(" ");
+    return words.slice(0, -1).join(" ");
+  }
+  if (words.length === 2) return words[0];
+  return fullName;
+}
 function formatTime(iso) {
   return new Date(iso).toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit",timeZoneName:"short"});
 }
@@ -129,7 +180,10 @@ async function fetchLiveOdds(sport) {
     const ouMove   = opening && ou.total    ? ou.total    - opening.pinTotal  : 0;
 
     return {
-      away, home, time: formatTime(game.commence_time), ml, spread, ou, lean, gameKey,
+      away, home,
+      awayDisplay: displayName(game.away_team),
+      homeDisplay: displayName(game.home_team),
+      time: formatTime(game.commence_time), ml, spread, ou, lean, gameKey,
       consensus: { agree: agreeBooks, total: totalBooks, sharpAgree, sharpTotal },
       lineMove:  { ml: mlMove, ou: ouMove, hasData: !!opening },
     };
@@ -362,7 +416,7 @@ function MLView({game, mlVacuum, myPrice, onMyPriceChange}){
           <div style={{fontFamily:"monospace",fontSize:16,fontWeight:700,color:C.text,marginTop:8}}>{(iProb(leanPin)*100).toFixed(1)}%</div>
         </div>
       </div>
-      <BookPriceInput pinPrice={leanPin} dkPrice={leanDk} label={`${game.lean} ML`} value={myPrice} onChange={onMyPriceChange}/>
+      <BookPriceInput pinPrice={leanPin} dkPrice={leanDk} label={`${lh?game.homeDisplay||game.home:game.awayDisplay||game.away} ML`} value={myPrice} onChange={onMyPriceChange}/>
     </div>
   );
 }
@@ -371,12 +425,15 @@ function SpreadView({game, myPrice, onMyPriceChange}){
   const leanPin = lh?sp.home_pin:sp.away_pin;
   const leanDk  = lh?sp.home_dk:sp.away_dk;
   const leanLine = lh?sp.home_line:sp.away_line;
+  const awayDisp = game.awayDisplay||game.away;
+  const homeDisp = game.homeDisplay||game.home;
+  const leanDisp = lh?homeDisp:awayDisp;
   return(<div>
     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-      <SideCard label={`${game.away} ${fmt(sp.away_line)}`} pin={sp.away_pin} dk={sp.away_dk} isLean={!lh}/>
-      <SideCard label={`${game.home} ${fmt(sp.home_line)}`} pin={sp.home_pin} dk={sp.home_dk} isLean={lh}/>
+      <SideCard label={`${awayDisp} ${fmt(sp.away_line)}`} pin={sp.away_pin} dk={sp.away_dk} isLean={!lh}/>
+      <SideCard label={`${homeDisp} ${fmt(sp.home_line)}`} pin={sp.home_pin} dk={sp.home_dk} isLean={lh}/>
     </div>
-    <BookPriceInput pinPrice={leanPin} dkPrice={leanDk} label={`${game.lean} ${leanLine>0?"+":""}${leanLine}`} value={myPrice} onChange={onMyPriceChange}/>
+    <BookPriceInput pinPrice={leanPin} dkPrice={leanDk} label={`${leanDisp} ${leanLine>0?"+":""}${leanLine}`} value={myPrice} onChange={onMyPriceChange}/>
   </div>);
 }
 // ─── Implied Totals Row ───────────────────────────────────────────────────────
@@ -468,11 +525,13 @@ function OUView({game, impliedTotals, myPrice, onMyPriceChange}){
   const oe=edge(ou.over_pin,ou.over_dk),ue=edge(ou.under_pin,ou.under_dk);
   const best=oe>=ue?"OVER":"UNDER";
   const lh=game.lean===game.home;
+  const awayDisp=game.awayDisplay||game.away;
+  const homeDisp=game.homeDisplay||game.home;
   const bestPin = best==="OVER" ? ou.over_pin : ou.under_pin;
   const bestDk  = best==="OVER" ? ou.over_dk  : ou.under_dk;
   return(<div>
     <div style={{fontSize:9,color:C.textMuted,marginBottom:8}}>TOTAL <span style={{fontSize:20,color:C.text,fontFamily:"monospace",fontWeight:700,marginLeft:6}}>{ou.total}</span></div>
-    <ImpliedTotalsRow impliedTotals={impliedTotals} leanTeam={game.lean} dogTeam={lh?game.away:game.home}/>
+    <ImpliedTotalsRow impliedTotals={impliedTotals} leanTeam={lh?homeDisp:awayDisp} dogTeam={lh?awayDisp:homeDisp}/>
     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
       <SideCard label={`OVER ${ou.total}`}  pin={ou.over_pin}  dk={ou.over_dk}  isLean={best==="OVER"}/>
       <SideCard label={`UNDER ${ou.total}`} pin={ou.under_pin} dk={ou.under_dk} isLean={best==="UNDER"}/>
@@ -496,13 +555,13 @@ function GameCard({rawGame}){
         <div>
           <div style={{fontSize:9,color:C.textMuted,letterSpacing:"0.06em",marginBottom:4}}>{rawGame.time}</div>
           <div style={{display:"flex",alignItems:"center",gap:8}}>
-            <span style={{fontSize:22,fontWeight:800,fontFamily:"monospace",color:!lh?C.lean:C.nonLean}}>{rawGame.away}</span>
+            <span style={{fontSize:18,fontWeight:800,fontFamily:"monospace",color:!lh?C.lean:C.nonLean}}>{rawGame.awayDisplay}</span>
             <span style={{fontSize:10,color:C.textMuted}}>@</span>
-            <span style={{fontSize:22,fontWeight:800,fontFamily:"monospace",color:lh?C.lean:C.nonLean}}>{rawGame.home}</span>
+            <span style={{fontSize:18,fontWeight:800,fontFamily:"monospace",color:lh?C.lean:C.nonLean}}>{rawGame.homeDisplay}</span>
           </div>
         </div>
         <div style={{textAlign:"right"}}>
-          <div style={{fontSize:11,color:C.textDim,fontFamily:"monospace",marginBottom:5}}>◄ {rawGame.lean} {fmt(mlP)}</div>
+          <div style={{fontSize:11,color:C.textDim,fontFamily:"monospace",marginBottom:5}}>◄ {lh?rawGame.homeDisplay:rawGame.awayDisplay} {fmt(mlP)}</div>
           <div style={{display:"flex",alignItems:"center",gap:6,justifyContent:"flex-end"}}>
             {steamDetected&&<span style={{fontSize:8,color:C.steam,background:C.steamBg,border:"1px solid rgba(248,113,113,0.25)",borderRadius:3,padding:"2px 5px"}}>🔥 STEAM</span>}
             <span style={{fontSize:8,color:C.textMuted,background:"#0f1614",border:`1px solid ${C.cardBorder}`,borderRadius:3,padding:"2px 5px"}}>MACRO AUTO</span>
