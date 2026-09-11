@@ -1120,7 +1120,6 @@ export default function App(){
         {!isLoading&&sorted.map((g,i)=>{try{return<GameCard key={i} rawGame={g} onLogBet={handleLogBet} spRatings={spRatings}/>;}catch{return null;}})}
       </div>
       {betLogOpen&&<BetLogPanel log={betLog} onDelete={handleDeleteBet} onClose={()=>setBetLogOpen(false)}/>}
-      </div>
 
       <div style={{textAlign:"center",fontSize:8,color:"#1c2825",letterSpacing:"0.08em",padding:"12px 0 0"}}>
         SHARP BOOKS: PINNACLE · BOOKMAKER · LOWVIG · CONSENSUS ACROSS 8 BOOKS
