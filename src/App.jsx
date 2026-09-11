@@ -183,7 +183,7 @@ async function fetchLiveOdds(sport) {
       away, home,
       awayDisplay: displayName(game.away_team),
       homeDisplay: displayName(game.home_team),
-      time: formatTime(game.commence_time), ml, spread, ou, lean, gameKey,
+      time: formatTime(game.commence_time), commenceTime: game.commence_time, ml, spread, ou, lean, gameKey,
       consensus: { agree: agreeBooks, total: totalBooks, sharpAgree, sharpTotal },
       lineMove:  { ml: mlMove, ou: ouMove, hasData: !!opening },
     };
@@ -597,6 +597,8 @@ export default function App(){
   const [updated,setUpdated]=useState({});
   const [creditsLeft,setCreditsLeft]=useState(null);
   const [sigFilter,setSigFilter]=useState(2);
+  const [sortBy,setSortBy]=useState("edge");
+  const [sortDir,setSortDir]=useState("desc");
 
   async function load(s){
     setLoading(p=>({...p,[s]:true}));
@@ -614,6 +616,17 @@ export default function App(){
 
   const cur=games[sport]||[],isLoading=loading[sport],err=errors[sport],upd=updated[sport];
   const filtered=cur.filter(g=>{try{return analyze(g).sig>=sigFilter;}catch{return false;}});
+  const sorted=[...filtered].sort((a,b)=>{
+    let av,bv;
+    if(sortBy==="time"){
+      av=a.commenceTime?new Date(a.commenceTime).getTime():0;
+      bv=b.commenceTime?new Date(b.commenceTime).getTime():0;
+    }else{
+      try{av=analyze(a).optimal.edge;}catch{av=-Infinity;}
+      try{bv=analyze(b).optimal.edge;}catch{bv=-Infinity;}
+    }
+    return sortDir==="asc"?av-bv:bv-av;
+  });
 
   return(
     <div style={{background:C.bg,minHeight:"100vh",fontFamily:"'Inter',system-ui,sans-serif",paddingBottom:40}}>
@@ -639,10 +652,21 @@ export default function App(){
           {creditsLeft!==null&&<span style={{fontSize:9,color:creditsLeft<50?"#f59e0b":C.textMuted}}>{creditsLeft}/500 requests left</span>}
         </div>
 
-        <div style={{display:"flex",gap:4}}>
+        <div style={{display:"flex",gap:4,marginBottom:8}}>
           {[1,2,3,4].map(n=>(
             <button key={n} onClick={()=>setSigFilter(n)} style={{padding:"4px 12px",borderRadius:20,border:`1px solid ${sigFilter===n?"#2d3f52":C.cardBorder}`,background:sigFilter===n?"#162032":"transparent",color:sigFilter===n?C.text:C.textMuted,fontSize:10,fontWeight:600,cursor:"pointer"}}>Signal {n}+</button>
           ))}
+        </div>
+
+        <div style={{display:"flex",gap:6,alignItems:"center"}}>
+          <span style={{fontSize:9,color:C.textMuted,letterSpacing:"0.06em"}}>SORT</span>
+          <select value={sortBy} onChange={e=>setSortBy(e.target.value)} style={{background:"#0c1210",border:`1px solid ${C.cardBorder}`,borderRadius:6,color:C.textDim,fontSize:10,padding:"3px 8px",cursor:"pointer",outline:"none"}}>
+            <option value="edge">Edge vs Pinnacle</option>
+            <option value="time">Start Time</option>
+          </select>
+          <button onClick={()=>setSortDir(d=>d==="asc"?"desc":"asc")} style={{background:"transparent",border:`1px solid ${C.cardBorder}`,borderRadius:6,color:C.textDim,fontSize:10,fontWeight:700,padding:"3px 10px",cursor:"pointer"}}>
+            {sortDir==="asc"?"↑ ASC":"↓ DESC"}
+          </button>
         </div>
       </div>
 
@@ -670,9 +694,9 @@ export default function App(){
             <button onClick={()=>load(sport)} style={{background:"transparent",border:`1px solid ${C.cardBorder}`,color:C.textDim,fontSize:10,fontWeight:600,borderRadius:6,padding:"6px 16px",cursor:"pointer"}}>RETRY</button>
           </div>
         )}
-        {!isLoading&&!err&&filtered.length===0&&cur.length>0&&<div style={{textAlign:"center",padding:"40px 0",color:C.textMuted,fontSize:11}}>No games at Signal {sigFilter}+ — try lowering the filter</div>}
+        {!isLoading&&!err&&sorted.length===0&&cur.length>0&&<div style={{textAlign:"center",padding:"40px 0",color:C.textMuted,fontSize:11}}>No games at Signal {sigFilter}+ — try lowering the filter</div>}
         {!isLoading&&!err&&cur.length===0&&upd&&<div style={{textAlign:"center",padding:"40px 0",color:C.textMuted,fontSize:11}}>No {sport} games today</div>}
-        {!isLoading&&filtered.map((g,i)=>{try{return<GameCard key={i} rawGame={g}/>;}catch{return null;}})}
+        {!isLoading&&sorted.map((g,i)=>{try{return<GameCard key={i} rawGame={g}/>;}catch{return null;}})}
       </div>
 
       <div style={{textAlign:"center",fontSize:8,color:"#1c2825",letterSpacing:"0.08em",padding:"12px 0 0"}}>
