@@ -61,7 +61,54 @@ const TWO_WORD_MASCOTS = new Set([
   "Blue Raiders","Mountain Hawks","Running Rebels","Ragin Cajuns","Black Bears",
   "Wolf Pack","Tar Heels","Cardinal and Gold","Big Green","Silver Hawks",
   "Screaming Eagles","River Hawks","Red Foxes","Blue Hens","Green Wave",
+  "Crimson Tide","Blue Devils","Black Knights","Red Wolves","Golden Flashes",
+  "War Hawks","Red Storm","Fighting Hawks","Rainbow Warriors","Cardinal and Gold",
+  "Mean Green","Blue Hose","Aztec Warriors",
 ]);
+
+// ─── SP+ 2026 Ratings (as of Week 1, Sept 8 2026) ───────────────────────────
+// Keys match displayName() output. offRank/defRank = national rank (lower = better).
+const SP_PLUS_2026 = {
+  "Ohio State":    { offRank:3,  defRank:1,  offRating:40.0, defRating:10.1 },
+  "Georgia":       { offRank:4,  defRank:3,  offRating:39.9, defRating:11.9 },
+  "Notre Dame":    { offRank:1,  defRank:7,  offRating:40.6, defRating:14.0 },
+  "Texas":         { offRank:5,  defRank:8,  offRating:39.2, defRating:14.2 },
+  "Miami (FL)":    { offRank:10, defRank:4,  offRating:36.9, defRating:12.5 },
+  "Indiana":       { offRank:9,  defRank:8,  offRating:37.8, defRating:14.2 },
+  "Oregon":        { offRank:6,  defRank:12, offRating:38.9, defRating:15.2 },
+  "Texas A&M":     { offRank:7,  defRank:10, offRating:38.8, defRating:14.6 },
+  "LSU":           { offRank:14, defRank:2,  offRating:34.4, defRating:11.4 },
+  "Oklahoma":      { offRank:16, defRank:5,  offRating:34.0, defRating:12.6 },
+  "Alabama":       { offRank:22, defRank:5,  offRating:33.0, defRating:12.6 },
+  "Tennessee":     { offRank:2,  defRank:36, offRating:40.3, defRating:20.8 },
+  "Penn State":    { offRank:11, defRank:14, offRating:35.3, defRating:16.2 },
+  "Texas Tech":    { offRank:13, defRank:14, offRating:34.9, defRating:16.2 },
+  "Florida":       { offRank:20, defRank:13, offRating:33.5, defRating:15.5 },
+  "Iowa":          { offRank:30, defRank:11, offRating:32.1, defRating:14.7 },
+  "USC":           { offRank:8,  defRank:27, offRating:37.9, defRating:19.9 },
+  "BYU":           { offRank:18, defRank:19, offRating:33.9, defRating:17.4 },
+  "Ole Miss":      { offRank:12, defRank:44, offRating:35.1, defRating:22.5 },
+  "Kansas State":  { offRank:15, defRank:40, offRating:34.3, defRating:21.8 },
+  "Michigan":      { offRank:45, defRank:17, offRating:29.7, defRating:17.0 },
+  "S. Carolina":   { offRank:25, defRank:16, offRating:32.6, defRating:16.4 },
+  "Washington":    { offRank:40, defRank:22, offRating:30.5, defRating:18.1 },
+  "Missouri":      { offRank:36, defRank:21, offRating:31.2, defRating:17.9 },
+  "Vanderbilt":    { offRank:16, defRank:44, offRating:34.0, defRating:22.5 },
+  "Utah":          { offRank:19, defRank:35, offRating:33.7, defRating:20.7 },
+  "Nebraska":      { offRank:28, defRank:31, offRating:32.4, defRating:20.4 },
+  "Minnesota":     { offRank:53, defRank:20, offRating:27.9, defRating:17.8 },
+  "Arkansas":      { offRank:25, defRank:94, offRating:32.6, defRating:29.5 },
+  "Auburn":        { offRank:76, defRank:23, offRating:25.3, defRating:18.6 },
+  "Arizona":       { offRank:24, defRank:25, offRating:32.7, defRating:19.6 },
+  "N. Carolina":   { offRank:83, defRank:24, offRating:24.5, defRating:19.1 },
+  "Iowa State":    { offRank:84, defRank:39, offRating:24.2, defRating:21.6 },
+  "Wisconsin":     { offRank:113,defRank:34, offRating:19.3, defRating:20.6 },
+  "Clemson":       { offRank:66, defRank:38, offRating:26.4, defRating:21.5 },
+  "Duke":          { offRank:34, defRank:63, offRating:31.3, defRating:25.1 },
+  "Miss. State":   { offRank:20, defRank:62, offRating:33.5, defRating:24.7 },
+  "Boise State":   { offRank:47, defRank:58, offRating:29.5, defRating:24.1 },
+  "Houston":       { offRank:39, defRank:55, offRating:30.7, defRating:23.9 },
+};
 
 function displayName(fullName) {
   if (!fullName) return "";
@@ -307,7 +354,24 @@ function analyze(game) {
     return null;
   })();
 
-  return {optimal:bets[0],bets,sig,tags,impl,conScore,sharpScore,mlVacuum,impliedTotals,keyNum,rlm};
+  // ── SP+ 2026 Ratings ─────────────────────────────────────────────────────────
+  const leanDisp2 = lh ? (game.homeDisplay||game.home) : (game.awayDisplay||game.away);
+  const dogDisp2  = lh ? (game.awayDisplay||game.away) : (game.homeDisplay||game.home);
+  const leanSP = SP_PLUS_2026[leanDisp2] || null;
+  const dogSP  = SP_PLUS_2026[dogDisp2]  || null;
+  const spFlag = (leanSP || dogSP) ? {
+    leanOff: leanSP?.offRank, leanDef: leanSP?.defRank,
+    dogOff:  dogSP?.offRank,  dogDef:  dogSP?.defRank,
+    leanName: leanDisp2, dogName: dogDisp2,
+    // Against-the-Under: either team has elite offense (top 15)
+    underVeto: (leanSP?.offRank <= 15) || (dogSP?.offRank <= 15),
+    underVetoTeam: (leanSP?.offRank <= 15 ? leanDisp2 : null) || (dogSP?.offRank <= 15 ? dogDisp2 : null),
+    // Against-the-Over: either team has elite defense (top 8)
+    overVeto: (leanSP?.defRank <= 8) || (dogSP?.defRank <= 8),
+    overVetoTeam: (leanSP?.defRank <= 8 ? leanDisp2 : null) || (dogSP?.defRank <= 8 ? dogDisp2 : null),
+  } : null;
+
+  return {optimal:bets[0],bets,sig,tags,impl,conScore,sharpScore,mlVacuum,impliedTotals,keyNum,rlm,spFlag};
 }
 
 // ─── Colors ───────────────────────────────────────────────────────────────────
@@ -656,10 +720,131 @@ function OUView({game, impliedTotals, myPrice, onMyPriceChange}){
   </div>);
 }
 
-function GameCard({rawGame}){
+// ─── SP+ Badge ────────────────────────────────────────────────────────────────
+function SPBadge({spFlag, optimalType}) {
+  if (!spFlag) return null;
+  const rows = [];
+  if (spFlag.underVeto && (optimalType === "O/U")) {
+    rows.push(
+      <div key="uv" style={{background:"rgba(248,113,113,0.06)",border:"1px solid rgba(248,113,113,0.2)",borderRadius:7,padding:"6px 10px",marginBottom:6,display:"flex",gap:8,alignItems:"flex-start"}}>
+        <span style={{fontSize:10,color:"#f87171"}}>📈</span>
+        <div>
+          <span style={{fontSize:9,fontWeight:700,color:"#f87171",letterSpacing:"0.07em"}}>SP+ AGAINST-THE-UNDER</span>
+          <div style={{fontSize:8,color:C.textMuted,marginTop:2,lineHeight:1.4}}>
+            <strong style={{color:"#f87171"}}>{spFlag.underVetoTeam}</strong> has a top-15 projected offense (SP+). Historical Under data may not reflect their scoring ceiling.
+          </div>
+        </div>
+      </div>
+    );
+  }
+  if (spFlag.overVeto && (optimalType === "O/U")) {
+    rows.push(
+      <div key="ov" style={{background:"rgba(110,231,183,0.06)",border:"1px solid rgba(110,231,183,0.2)",borderRadius:7,padding:"6px 10px",marginBottom:6,display:"flex",gap:8,alignItems:"flex-start"}}>
+        <span style={{fontSize:10,color:C.positive}}>🛡</span>
+        <div>
+          <span style={{fontSize:9,fontWeight:700,color:C.positive,letterSpacing:"0.07em"}}>SP+ ELITE DEFENSE</span>
+          <div style={{fontSize:8,color:C.textMuted,marginTop:2,lineHeight:1.4}}>
+            <strong style={{color:C.positive}}>{spFlag.overVetoTeam}</strong> has a top-8 projected defense (SP+). Against-the-Over lean — suppressed scoring expected.
+          </div>
+        </div>
+      </div>
+    );
+  }
+  // Always show ratings summary row when SP+ data available
+  const hasInfo = spFlag.leanOff || spFlag.dogOff;
+  if (hasInfo && rows.length === 0) {
+    // Show quiet info row
+    const lOff = spFlag.leanOff ? `Off #${spFlag.leanOff}` : "";
+    const lDef = spFlag.leanDef ? `Def #${spFlag.leanDef}` : "";
+    const dOff = spFlag.dogOff  ? `Off #${spFlag.dogOff}`  : "";
+    const dDef = spFlag.dogDef  ? `Def #${spFlag.dogDef}`  : "";
+    rows.push(
+      <div key="info" style={{background:"#0a0f0e",border:`1px solid ${C.cardBorder}`,borderRadius:7,padding:"5px 10px",marginBottom:6,display:"flex",gap:16,alignItems:"center"}}>
+        <span style={{fontSize:8,color:C.textMuted,letterSpacing:"0.07em"}}>SP+</span>
+        {(lOff||lDef) && <span style={{fontSize:8,color:C.textDim}}><strong>{spFlag.leanName}</strong> {[lOff,lDef].filter(Boolean).join(" · ")}</span>}
+        {(dOff||dDef) && <span style={{fontSize:8,color:C.textMuted}}><strong>{spFlag.dogName}</strong> {[dOff,dDef].filter(Boolean).join(" · ")}</span>}
+      </div>
+    );
+  }
+  return rows.length > 0 ? <>{rows}</> : null;
+}
+
+// ─── CLV Helpers ──────────────────────────────────────────────────────────────
+function toDec(american) {
+  if (!american) return null;
+  return american > 0 ? american/100 + 1 : 100/Math.abs(american) + 1;
+}
+function calcCLV(entryOdds, currentPinOdds) {
+  const e = toDec(entryOdds), c = toDec(currentPinOdds);
+  if (!e || !c) return null;
+  return ((e - c) / c * 100).toFixed(1);
+}
+function saveBetLog(log) {
+  try { localStorage.setItem("bet_log_v2", JSON.stringify(log)); } catch {}
+}
+function loadBetLog() {
+  try { return JSON.parse(localStorage.getItem("bet_log_v2") || "[]"); } catch { return []; }
+}
+
+// ─── Bet Log Panel ─────────────────────────────────────────────────────────────
+function BetLogPanel({log, onDelete, onClose}) {
+  return (
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.85)",zIndex:100,display:"flex",flexDirection:"column"}}>
+      <div style={{background:C.card,borderBottom:`1px solid ${C.cardBorder}`,padding:"12px 14px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <span style={{fontSize:13,fontWeight:800,letterSpacing:"0.1em",color:C.text}}>BET LOG</span>
+        <button onClick={onClose} style={{background:"transparent",border:`1px solid ${C.cardBorder}`,borderRadius:20,color:C.textDim,fontSize:10,fontWeight:600,padding:"4px 12px",cursor:"pointer"}}>✕ CLOSE</button>
+      </div>
+      <div style={{flex:1,overflowY:"auto",padding:12}}>
+        {log.length === 0 && (
+          <div style={{textAlign:"center",padding:"60px 0",color:C.textMuted,fontSize:11}}>
+            No bets logged yet. Tap LOG BET on any game card.
+          </div>
+        )}
+        {[...log].reverse().map(b => {
+          const clv = calcCLV(b.entryOdds, b.pinAtEntry);
+          const clvNum = clv ? parseFloat(clv) : null;
+          const clvColor = clvNum > 0 ? C.positive : clvNum < 0 ? "#f87171" : C.textMuted;
+          return (
+            <div key={b.id} style={{background:C.card,border:`1px solid ${C.cardBorder}`,borderRadius:10,padding:"10px 12px",marginBottom:8}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:6}}>
+                <div>
+                  <div style={{fontSize:11,fontWeight:700,color:C.text,marginBottom:2}}>{b.pick}</div>
+                  <div style={{fontSize:9,color:C.textMuted}}>{b.game} · {b.sport} · {new Date(b.ts).toLocaleDateString("en-US",{month:"numeric",day:"numeric",hour:"numeric",minute:"2-digit"})}</div>
+                </div>
+                <button onClick={()=>onDelete(b.id)} style={{background:"transparent",border:"none",color:C.textMuted,fontSize:12,cursor:"pointer",padding:"0 4px"}}>✕</button>
+              </div>
+              <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                <div style={{background:"#0a0f0e",border:`1px solid ${C.cardBorder}`,borderRadius:5,padding:"3px 8px"}}>
+                  <span style={{fontSize:8,color:C.textMuted}}>ENTRY </span>
+                  <span style={{fontSize:10,fontFamily:"monospace",fontWeight:700,color:C.text}}>{fmt(b.entryOdds)}</span>
+                </div>
+                {b.pinAtEntry && <div style={{background:"#0a0f0e",border:`1px solid ${C.cardBorder}`,borderRadius:5,padding:"3px 8px"}}>
+                  <span style={{fontSize:8,color:C.textMuted}}>PIN @ ENTRY </span>
+                  <span style={{fontSize:10,fontFamily:"monospace",fontWeight:700,color:C.textDim}}>{fmt(b.pinAtEntry)}</span>
+                </div>}
+                {clv && <div style={{background:clvNum>0?"rgba(110,231,183,0.06)":"rgba(248,113,113,0.06)",border:`1px solid ${clvNum>0?"rgba(110,231,183,0.2)":"rgba(248,113,113,0.2)"}`,borderRadius:5,padding:"3px 8px"}}>
+                  <span style={{fontSize:8,color:C.textMuted}}>CLV </span>
+                  <span style={{fontSize:10,fontFamily:"monospace",fontWeight:700,color:clvColor}}>{clvNum>0?`+${clv}%`:`${clv}%`}</span>
+                </div>}
+                {b.stake && <div style={{background:"#0a0f0e",border:`1px solid ${C.cardBorder}`,borderRadius:5,padding:"3px 8px"}}>
+                  <span style={{fontSize:8,color:C.textMuted}}>STAKE </span>
+                  <span style={{fontSize:10,fontFamily:"monospace",fontWeight:700,color:C.textDim}}>${b.stake}</span>
+                </div>}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function GameCard({rawGame, onLogBet}){
   const [tab,setTab]=useState("ML");
   const [myPrices,setMyPrices]=useState({ML:"",SPREAD:"","O/U":""});
-  const {optimal,bets,sig,tags,mlVacuum,impliedTotals,keyNum,rlm}=analyze(rawGame);
+  const [showLogForm,setShowLogForm]=useState(false);
+  const [logStake,setLogStake]=useState("");
+  const {optimal,bets,sig,tags,mlVacuum,impliedTotals,keyNum,rlm,spFlag}=analyze(rawGame);
   const lh=rawGame.lean===rawGame.home;
   const mlP=lh?rawGame.ml?.home_pin:rawGame.ml?.away_pin;
   const steamDetected=rawGame.lineMove?.hasData&&rawGame.lineMove?.ml<-3;
@@ -690,7 +875,48 @@ function GameCard({rawGame}){
       <ConsensusBar consensus={rawGame.consensus} lineMove={rawGame.lineMove} sharpScore={rawGame.consensus?.sharpTotal>0?rawGame.consensus.sharpAgree/rawGame.consensus.sharpTotal:0}/>
       <KeyNumBadge keyNum={keyNum}/>
       <RLMBadge rlm={rlm}/>
+      <SPBadge spFlag={spFlag} optimalType={optimal?.type}/>
       <OptimalBadge bet={optimal} impliedTotals={impliedTotals}/>
+      {/* LOG BET */}
+      {!showLogForm && (
+        <button onClick={()=>setShowLogForm(true)} style={{width:"100%",background:"transparent",border:`1px dashed ${C.cardBorder}`,borderRadius:7,color:C.textMuted,fontSize:9,fontWeight:600,padding:"5px 0",cursor:"pointer",letterSpacing:"0.07em",marginBottom:10}}>
+          + LOG BET
+        </button>
+      )}
+      {showLogForm && (
+        <div style={{background:"#0a0f0e",border:`1px solid ${C.positiveBorder}`,borderRadius:8,padding:"10px 12px",marginBottom:10}}>
+          <div style={{fontSize:9,color:C.positive,fontWeight:700,letterSpacing:"0.07em",marginBottom:8}}>LOG BET · {optimal?.label}</div>
+          <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:8}}>
+            <div style={{flex:1}}>
+              <div style={{fontSize:8,color:C.textMuted,marginBottom:3}}>ENTRY ODDS</div>
+              <div style={{fontFamily:"monospace",fontSize:13,fontWeight:700,color:C.text}}>{fmt(optimal?.dk)}</div>
+              <div style={{fontSize:8,color:C.textMuted,marginTop:1}}>PIN: {fmt(optimal?.pin)}</div>
+            </div>
+            <div style={{flex:1}}>
+              <div style={{fontSize:8,color:C.textMuted,marginBottom:3}}>STAKE ($)</div>
+              <input type="number" placeholder="e.g. 20" value={logStake} onChange={e=>setLogStake(e.target.value)}
+                style={{width:"100%",background:"#0c1210",border:`1px solid ${C.cardBorder}`,borderRadius:6,color:C.text,fontSize:12,fontWeight:700,padding:"5px 8px",outline:"none",boxSizing:"border-box"}}/>
+            </div>
+          </div>
+          <div style={{display:"flex",gap:6}}>
+            <button onClick={()=>{
+              onLogBet({
+                id: Date.now(), ts: new Date().toISOString(),
+                game: `${rawGame.awayDisplay||rawGame.away} @ ${rawGame.homeDisplay||rawGame.home}`,
+                pick: optimal?.label, market: optimal?.type,
+                entryOdds: optimal?.dk, pinAtEntry: optimal?.pin,
+                stake: logStake || null,
+              });
+              setShowLogForm(false); setLogStake("");
+            }} style={{flex:1,background:"rgba(110,231,183,0.1)",border:`1px solid ${C.positiveBorder}`,borderRadius:6,color:C.positive,fontSize:10,fontWeight:700,padding:"6px 0",cursor:"pointer"}}>
+              SAVE BET
+            </button>
+            <button onClick={()=>{setShowLogForm(false);setLogStake("");}} style={{background:"transparent",border:`1px solid ${C.cardBorder}`,borderRadius:6,color:C.textMuted,fontSize:10,fontWeight:600,padding:"6px 12px",cursor:"pointer"}}>
+              CANCEL
+            </button>
+          </div>
+        </div>
+      )}
       <BetTabs active={tab} onChange={setTab} bets={bets}/>
 
       <div style={{marginBottom:12}}>
@@ -717,6 +943,19 @@ export default function App(){
   const [sigFilter,setSigFilter]=useState(2);
   const [sortBy,setSortBy]=useState("edge");
   const [sortDir,setSortDir]=useState("desc");
+  const [betLog,setBetLog]=useState(()=>loadBetLog());
+  const [betLogOpen,setBetLogOpen]=useState(false);
+
+  function handleLogBet(bet) {
+    const updated = [...betLog, bet];
+    setBetLog(updated);
+    saveBetLog(updated);
+  }
+  function handleDeleteBet(id) {
+    const updated = betLog.filter(b=>b.id!==id);
+    setBetLog(updated);
+    saveBetLog(updated);
+  }
 
   async function load(s, forceRefresh=false){
     // ── Serve from cache if fresh and not a manual refresh ──
@@ -764,6 +1003,9 @@ export default function App(){
           <span style={{fontSize:12,color:C.text,fontWeight:800,letterSpacing:"0.12em"}}>SIGNALS</span>
           <button onClick={()=>load(sport,true)} disabled={isLoading} style={{background:"transparent",border:`1px solid ${C.cardBorder}`,borderRadius:20,color:C.textDim,fontSize:10,fontWeight:600,padding:"4px 12px",cursor:"pointer"}}>
             {isLoading?"⟳ LOADING...":"⟳ REFRESH"}
+          </button>
+          <button onClick={()=>setBetLogOpen(true)} style={{background:betLog.length>0?"rgba(110,231,183,0.08)":"transparent",border:`1px solid ${betLog.length>0?C.positiveBorder:C.cardBorder}`,borderRadius:20,color:betLog.length>0?C.positive:C.textMuted,fontSize:10,fontWeight:600,padding:"4px 12px",cursor:"pointer"}}>
+            BETS {betLog.length>0?`(${betLog.length})`:""}
           </button>
         </div>
 
@@ -833,7 +1075,9 @@ export default function App(){
         )}
         {!isLoading&&!err&&sorted.length===0&&cur.length>0&&<div style={{textAlign:"center",padding:"40px 0",color:C.textMuted,fontSize:11}}>No games at Signal {sigFilter}+ — try lowering the filter</div>}
         {!isLoading&&!err&&cur.length===0&&upd&&<div style={{textAlign:"center",padding:"40px 0",color:C.textMuted,fontSize:11}}>No {sport} games today</div>}
-        {!isLoading&&sorted.map((g,i)=>{try{return<GameCard key={i} rawGame={g}/>;}catch{return null;}})}
+        {!isLoading&&sorted.map((g,i)=>{try{return<GameCard key={i} rawGame={g} onLogBet={handleLogBet}/>;}catch{return null;}})}
+      </div>
+      {betLogOpen&&<BetLogPanel log={betLog} onDelete={handleDeleteBet} onClose={()=>setBetLogOpen(false)}/>}
       </div>
 
       <div style={{textAlign:"center",fontSize:8,color:"#1c2825",letterSpacing:"0.08em",padding:"12px 0 0"}}>
