@@ -78,7 +78,11 @@ function displayName(fullName) {
   return fullName;
 }
 function formatTime(iso) {
-  return new Date(iso).toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit",timeZoneName:"short"});
+  const d = new Date(iso);
+  const day = d.toLocaleDateString("en-US",{weekday:"short"});
+  const date = d.toLocaleDateString("en-US",{month:"numeric",day:"numeric"});
+  const time = d.toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit",timeZoneName:"short"});
+  return `${day} ${date} · ${time}`;
 }
 
 // ─── localStorage line movement ───────────────────────────────────────────────
