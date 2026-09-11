@@ -811,10 +811,6 @@ function SPBadge({spFlag, optimalType}) {
 }
 
 // ─── CLV Helpers ──────────────────────────────────────────────────────────────
-function toDec(american) {
-  if (!american) return null;
-  return american > 0 ? american/100 + 1 : 100/Math.abs(american) + 1;
-}
 function calcCLV(entryOdds, currentPinOdds) {
   const e = toDec(entryOdds), c = toDec(currentPinOdds);
   if (!e || !c) return null;
