@@ -109,7 +109,29 @@ function cleanOldLines() {
   } catch {}
 }
 
-// ─── Fetch ────────────────────────────────────────────────────────────────────
+// ─── Odds Cache (15-min TTL) ──────────────────────────────────────────────────
+const CACHE_TTL = 15 * 60 * 1000; // 15 minutes in ms
+
+function getCached(sport) {
+  try {
+    const raw = localStorage.getItem(`odds_v2_${sport}`);
+    if (!raw) return null;
+    const { games, ts } = JSON.parse(raw);
+    if (Date.now() - ts > CACHE_TTL) return null;
+    return { games, ts };
+  } catch { return null; }
+}
+
+function setCached(sport, games) {
+  try {
+    localStorage.setItem(`odds_v2_${sport}`, JSON.stringify({ games, ts: Date.now() }));
+  } catch { /* quota exceeded — silent fail */ }
+}
+
+function cacheAgeLabel(ts) {
+  const mins = Math.round((Date.now() - ts) / 60000);
+  return mins === 0 ? "just now" : `${mins}m ago`;
+}
 async function fetchLiveOdds(sport) {
   const sportObj = SPORTS.find(s=>s.key===sport);
   if (!sportObj) throw new Error("Unknown sport");
@@ -693,13 +715,24 @@ export default function App(){
   const [sortBy,setSortBy]=useState("edge");
   const [sortDir,setSortDir]=useState("desc");
 
-  async function load(s){
+  async function load(s, forceRefresh=false){
+    // ── Serve from cache if fresh and not a manual refresh ──
+    if (!forceRefresh) {
+      const cached = getCached(s);
+      if (cached) {
+        setGames(p=>({...p,[s]:cached.games}));
+        setUpdated(p=>({...p,[s]:{time:new Date(cached.ts).toLocaleTimeString("en-US",{hour:"2-digit",minute:"2-digit"}),cached:true,ts:cached.ts}}));
+        return;
+      }
+    }
+    // ── Fresh fetch ──
     setLoading(p=>({...p,[s]:true}));
     setErrors(p=>({...p,[s]:null}));
     try{
       const {games:raw,requestsRemaining}=await fetchLiveOdds(s);
+      setCached(s, raw);
       setGames(p=>({...p,[s]:raw}));
-      setUpdated(p=>({...p,[s]:new Date().toLocaleTimeString("en-US",{hour:"2-digit",minute:"2-digit"})}));
+      setUpdated(p=>({...p,[s]:{time:new Date().toLocaleTimeString("en-US",{hour:"2-digit",minute:"2-digit"}),cached:false,ts:Date.now()}}));
       if(requestsRemaining!==null) setCreditsLeft(requestsRemaining);
     }catch(e){setErrors(p=>({...p,[s]:e.message}));}
     finally{setLoading(p=>({...p,[s]:false}));}
@@ -726,7 +759,7 @@ export default function App(){
       <div style={{background:C.bg,borderBottom:`1px solid ${C.cardBorder}`,padding:"12px 14px",position:"sticky",top:0,zIndex:10}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
           <span style={{fontSize:12,color:C.text,fontWeight:800,letterSpacing:"0.12em"}}>SIGNALS</span>
-          <button onClick={()=>load(sport)} disabled={isLoading} style={{background:"transparent",border:`1px solid ${C.cardBorder}`,borderRadius:20,color:C.textDim,fontSize:10,fontWeight:600,padding:"4px 12px",cursor:"pointer"}}>
+          <button onClick={()=>load(sport,true)} disabled={isLoading} style={{background:"transparent",border:`1px solid ${C.cardBorder}`,borderRadius:20,color:C.textDim,fontSize:10,fontWeight:600,padding:"4px 12px",cursor:"pointer"}}>
             {isLoading?"⟳ LOADING...":"⟳ REFRESH"}
           </button>
         </div>
@@ -741,7 +774,15 @@ export default function App(){
         </div>
 
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
-          {upd?<span style={{fontSize:9,color:C.textMuted}}>Updated {upd} · Pinnacle + 7 books</span>:<span/>}
+          {upd
+            ? <span style={{fontSize:9,color:C.textMuted}}>
+                {upd.cached
+                  ? <span>⚡ Cached {cacheAgeLabel(upd.ts)} · <span style={{color:"#f59e0b"}}>REFRESH for live</span></span>
+                  : `Updated ${upd.time} · Pinnacle + 7 books`
+                }
+              </span>
+            : <span/>
+          }
           {creditsLeft!==null&&<span style={{fontSize:9,color:creditsLeft<50?"#f59e0b":C.textMuted}}>{creditsLeft}/500 requests left</span>}
         </div>
 
