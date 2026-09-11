@@ -257,7 +257,35 @@ function analyze(game) {
     VALUE:   bets[0].edge>0.01,
     STEAM:   lm.hasData && lm.ml<-3,
   };
-  return {optimal:bets[0],bets,sig,tags,impl,conScore,sharpScore,mlVacuum,impliedTotals};
+  // ── Key Number Proximity ─────────────────────────────────────────────────────
+  // Flags when the spread line is within 0.5 of a key number
+  const KEY_NUMBERS = [3, 7, 10, 14, 17];
+  const keyNum = (() => {
+    if (spreadMag == null) return null;
+    for (const k of KEY_NUMBERS) {
+      const dist = Math.abs(spreadMag - k);
+      if (dist <= 0.5) return { number: k, dist, exact: dist === 0, half: dist === 0.5 };
+    }
+    return null;
+  })();
+
+  // ── RLM Formalization ────────────────────────────────────────────────────────
+  // RLM = line moved AGAINST public direction (line moved toward dog despite public on favorite)
+  // Requires opening line data. Public proxy: consensus agree % on lean side
+  const lm = game.lineMove || {};
+  const rlm = (() => {
+    if (!lm.hasData) return null;
+    const con = game.consensus || {};
+    const publicOnLean = con.total > 0 ? con.agree / con.total : 0;
+    // Line moved toward dog (ml moved positive = away from lean) while public is heavily on lean
+    const lineMovedAgainstPublic = lm.ml > 2 && publicOnLean > 0.6;
+    // Line moved toward dog on spread while public consensus is on lean
+    const spreadRLM = lm.ou !== 0 && publicOnLean > 0.6;
+    if (lineMovedAgainstPublic) return { type: "ML", magnitude: lm.ml, publicPct: Math.round(publicOnLean * 100) };
+    return null;
+  })();
+
+  return {optimal:bets[0],bets,sig,tags,impl,conScore,sharpScore,mlVacuum,impliedTotals,keyNum,rlm};
 }
 
 // ─── Colors ───────────────────────────────────────────────────────────────────
@@ -342,21 +370,76 @@ function ConsensusBar({consensus, lineMove, sharpScore}) {
   );
 }
 
-function OptimalBadge({bet}){
-  const ep=(bet.edge*100).toFixed(1);
-  const hasEdge=bet.edge>0.005;
-  return(
-    <div style={{background:hasEdge?C.accentDim:"rgba(255,255,255,0.02)",border:`1px solid ${hasEdge?C.accentBorder:C.cardBorder}`,borderRadius:8,padding:"9px 12px",marginBottom:10,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+// ─── Key Number Badge ─────────────────────────────────────────────────────────
+function KeyNumBadge({keyNum}) {
+  if (!keyNum) return null;
+  const isHalf = keyNum.half;
+  const isExact = keyNum.exact;
+  const color = isExact ? "#f59e0b" : "#6ee7b7";
+  const bg    = isExact ? "rgba(245,158,11,0.08)" : "rgba(110,231,183,0.06)";
+  const border= isExact ? "rgba(245,158,11,0.25)" : "rgba(110,231,183,0.15)";
+  const label = isExact
+    ? `ON KEY # ${keyNum.number}`
+    : `+0.5 OFF KEY # ${keyNum.number}`;
+  const note  = isHalf
+    ? "Half-point cushion on key number — strong cover protection"
+    : "Spread sits exactly on key number — push risk, shop for half-point";
+  return (
+    <div style={{background:bg,border:`1px solid ${border}`,borderRadius:7,padding:"6px 10px",marginBottom:8,display:"flex",gap:8,alignItems:"flex-start"}}>
+      <span style={{fontSize:11,color}}>⚡</span>
       <div>
-        <div style={{fontSize:9,color:hasEdge?C.accent:C.textMuted,letterSpacing:"0.1em",marginBottom:3}}>★ OPTIMAL BET</div>
-        <div style={{fontSize:15,fontWeight:700,color:C.text,fontFamily:"monospace"}}>
-          {bet.label}<span style={{fontSize:12,color:C.textDim,marginLeft:8}}>{fmt(bet.dk)}</span>
+        <span style={{fontSize:9,fontWeight:700,color,letterSpacing:"0.07em"}}>{label}</span>
+        <div style={{fontSize:8,color:C.textMuted,marginTop:2,lineHeight:1.4}}>{note}</div>
+      </div>
+    </div>
+  );
+}
+
+// ─── RLM Badge ────────────────────────────────────────────────────────────────
+function RLMBadge({rlm}) {
+  if (!rlm) return null;
+  return (
+    <div style={{background:"rgba(110,231,183,0.06)",border:"1px solid rgba(110,231,183,0.2)",borderRadius:7,padding:"6px 10px",marginBottom:8,display:"flex",gap:8,alignItems:"flex-start"}}>
+      <span style={{fontSize:11,color:C.positive}}>↩</span>
+      <div>
+        <span style={{fontSize:9,fontWeight:700,color:C.positive,letterSpacing:"0.07em"}}>REVERSE LINE MOVEMENT</span>
+        <div style={{fontSize:8,color:C.textMuted,marginTop:2,lineHeight:1.4}}>
+          Line moved {rlm.magnitude > 0 ? "away from" : "toward"} lean side despite {rlm.publicPct}% public on lean — sharp money likely fading the public.
         </div>
       </div>
-      <div style={{textAlign:"right"}}>
-        <div style={{fontSize:9,color:C.textMuted,letterSpacing:"0.07em",marginBottom:3}}>EDGE vs PIN</div>
-        <div style={{fontSize:17,fontWeight:800,fontFamily:"monospace",color:hasEdge?C.accent:C.textMuted}}>{hasEdge?`+${ep}%`:`${ep}%`}</div>
+    </div>
+  );
+}
+
+function OptimalBadge({bet, impliedTotals}){
+  const ep=(bet.edge*100).toFixed(1);
+  const hasEdge=bet.edge>0.005;
+  const dogAlert = impliedTotals?.dogUnderpricedFlag || impliedTotals?.dogMildFlag;
+  const alertColor = impliedTotals?.dogUnderpricedFlag ? "#f87171" : "#f59e0b";
+  const alertBg    = impliedTotals?.dogUnderpricedFlag ? "rgba(248,113,113,0.06)" : "rgba(245,158,11,0.06)";
+  const alertBorder= impliedTotals?.dogUnderpricedFlag ? "rgba(248,113,113,0.2)" : "rgba(245,158,11,0.2)";
+  return(
+    <div style={{marginBottom:10}}>
+      <div style={{background:hasEdge?C.accentDim:"rgba(255,255,255,0.02)",border:`1px solid ${hasEdge?C.accentBorder:C.cardBorder}`,borderRadius:8,padding:"9px 12px",display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom: dogAlert ? 6 : 0}}>
+        <div>
+          <div style={{fontSize:9,color:hasEdge?C.accent:C.textMuted,letterSpacing:"0.1em",marginBottom:3}}>★ OPTIMAL BET</div>
+          <div style={{fontSize:15,fontWeight:700,color:C.text,fontFamily:"monospace"}}>
+            {bet.label}<span style={{fontSize:12,color:C.textDim,marginLeft:8}}>{fmt(bet.dk)}</span>
+          </div>
+        </div>
+        <div style={{textAlign:"right"}}>
+          <div style={{fontSize:9,color:C.textMuted,letterSpacing:"0.07em",marginBottom:3}}>EDGE vs PIN</div>
+          <div style={{fontSize:17,fontWeight:800,fontFamily:"monospace",color:hasEdge?C.accent:C.textMuted}}>{hasEdge?`+${ep}%`:`${ep}%`}</div>
+        </div>
       </div>
+      {dogAlert && (
+        <div style={{background:alertBg,border:`1px solid ${alertBorder}`,borderRadius:7,padding:"5px 10px",display:"flex",gap:6,alignItems:"center"}}>
+          <span style={{fontSize:9,color:alertColor}}>⚠</span>
+          <span style={{fontSize:8,color:alertColor,lineHeight:1.4}}>
+            Dog implied total <strong>{impliedTotals.dog} pts</strong> — possibly underpriced for this opponent. Check Over confluence.
+          </span>
+        </div>
+      )}
     </div>
   );
 }
@@ -554,7 +637,7 @@ function OUView({game, impliedTotals, myPrice, onMyPriceChange}){
 function GameCard({rawGame}){
   const [tab,setTab]=useState("ML");
   const [myPrices,setMyPrices]=useState({ML:"",SPREAD:"","O/U":""});
-  const {optimal,bets,sig,tags,mlVacuum,impliedTotals}=analyze(rawGame);
+  const {optimal,bets,sig,tags,mlVacuum,impliedTotals,keyNum,rlm}=analyze(rawGame);
   const lh=rawGame.lean===rawGame.home;
   const mlP=lh?rawGame.ml?.home_pin:rawGame.ml?.away_pin;
   const steamDetected=rawGame.lineMove?.hasData&&rawGame.lineMove?.ml<-3;
@@ -583,7 +666,9 @@ function GameCard({rawGame}){
       </div>
 
       <ConsensusBar consensus={rawGame.consensus} lineMove={rawGame.lineMove} sharpScore={rawGame.consensus?.sharpTotal>0?rawGame.consensus.sharpAgree/rawGame.consensus.sharpTotal:0}/>
-      <OptimalBadge bet={optimal}/>
+      <KeyNumBadge keyNum={keyNum}/>
+      <RLMBadge rlm={rlm}/>
+      <OptimalBadge bet={optimal} impliedTotals={impliedTotals}/>
       <BetTabs active={tab} onChange={setTab} bets={bets}/>
 
       <div style={{marginBottom:12}}>
