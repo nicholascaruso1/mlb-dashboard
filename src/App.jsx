@@ -68,47 +68,87 @@ const TWO_WORD_MASCOTS = new Set([
 
 // ─── SP+ 2026 Ratings (as of Week 1, Sept 8 2026) ───────────────────────────
 // Keys match displayName() output. offRank/defRank = national rank (lower = better).
-const SP_PLUS_2026 = {
-  "Ohio State":    { offRank:3,  defRank:1,  offRating:40.0, defRating:10.1 },
-  "Georgia":       { offRank:4,  defRank:3,  offRating:39.9, defRating:11.9 },
-  "Notre Dame":    { offRank:1,  defRank:7,  offRating:40.6, defRating:14.0 },
-  "Texas":         { offRank:5,  defRank:8,  offRating:39.2, defRating:14.2 },
-  "Miami (FL)":    { offRank:10, defRank:4,  offRating:36.9, defRating:12.5 },
-  "Indiana":       { offRank:9,  defRank:8,  offRating:37.8, defRating:14.2 },
-  "Oregon":        { offRank:6,  defRank:12, offRating:38.9, defRating:15.2 },
-  "Texas A&M":     { offRank:7,  defRank:10, offRating:38.8, defRating:14.6 },
-  "LSU":           { offRank:14, defRank:2,  offRating:34.4, defRating:11.4 },
-  "Oklahoma":      { offRank:16, defRank:5,  offRating:34.0, defRating:12.6 },
-  "Alabama":       { offRank:22, defRank:5,  offRating:33.0, defRating:12.6 },
-  "Tennessee":     { offRank:2,  defRank:36, offRating:40.3, defRating:20.8 },
-  "Penn State":    { offRank:11, defRank:14, offRating:35.3, defRating:16.2 },
-  "Texas Tech":    { offRank:13, defRank:14, offRating:34.9, defRating:16.2 },
-  "Florida":       { offRank:20, defRank:13, offRating:33.5, defRating:15.5 },
-  "Iowa":          { offRank:30, defRank:11, offRating:32.1, defRating:14.7 },
-  "USC":           { offRank:8,  defRank:27, offRating:37.9, defRating:19.9 },
-  "BYU":           { offRank:18, defRank:19, offRating:33.9, defRating:17.4 },
-  "Ole Miss":      { offRank:12, defRank:44, offRating:35.1, defRating:22.5 },
-  "Kansas State":  { offRank:15, defRank:40, offRating:34.3, defRating:21.8 },
-  "Michigan":      { offRank:45, defRank:17, offRating:29.7, defRating:17.0 },
-  "S. Carolina":   { offRank:25, defRank:16, offRating:32.6, defRating:16.4 },
-  "Washington":    { offRank:40, defRank:22, offRating:30.5, defRating:18.1 },
-  "Missouri":      { offRank:36, defRank:21, offRating:31.2, defRating:17.9 },
-  "Vanderbilt":    { offRank:16, defRank:44, offRating:34.0, defRating:22.5 },
-  "Utah":          { offRank:19, defRank:35, offRating:33.7, defRating:20.7 },
-  "Nebraska":      { offRank:28, defRank:31, offRating:32.4, defRating:20.4 },
-  "Minnesota":     { offRank:53, defRank:20, offRating:27.9, defRating:17.8 },
-  "Arkansas":      { offRank:25, defRank:94, offRating:32.6, defRating:29.5 },
-  "Auburn":        { offRank:76, defRank:23, offRating:25.3, defRating:18.6 },
-  "Arizona":       { offRank:24, defRank:25, offRating:32.7, defRating:19.6 },
-  "N. Carolina":   { offRank:83, defRank:24, offRating:24.5, defRating:19.1 },
-  "Iowa State":    { offRank:84, defRank:39, offRating:24.2, defRating:21.6 },
-  "Wisconsin":     { offRank:113,defRank:34, offRating:19.3, defRating:20.6 },
-  "Clemson":       { offRank:66, defRank:38, offRating:26.4, defRating:21.5 },
-  "Duke":          { offRank:34, defRank:63, offRating:31.3, defRating:25.1 },
-  "Miss. State":   { offRank:20, defRank:62, offRating:33.5, defRating:24.7 },
-  "Boise State":   { offRank:47, defRank:58, offRating:29.5, defRating:24.1 },
-  "Houston":       { offRank:39, defRank:55, offRating:30.7, defRating:23.9 },
+// ─── SP+ Live Fetch (CFBD API via Netlify Function) ──────────────────────────
+// Static fallback used until live data loads (Week 1 2026 data)
+const SP_STATIC_FALLBACK = {
+  "Ohio State":   {offRank:3, defRank:1}, "Georgia":     {offRank:4, defRank:3},
+  "Notre Dame":   {offRank:1, defRank:7}, "Texas":       {offRank:5, defRank:8},
+  "Miami (FL)":   {offRank:10,defRank:4}, "Indiana":     {offRank:9, defRank:8},
+  "Oregon":       {offRank:6, defRank:12},"Texas A&M":   {offRank:7, defRank:10},
+  "LSU":          {offRank:14,defRank:2}, "Oklahoma":    {offRank:16,defRank:5},
+  "Alabama":      {offRank:22,defRank:5}, "Tennessee":   {offRank:2, defRank:36},
+  "Penn State":   {offRank:11,defRank:14},"Texas Tech":  {offRank:13,defRank:14},
+  "Florida":      {offRank:20,defRank:13},"Iowa":        {offRank:30,defRank:11},
+  "USC":          {offRank:8, defRank:27},"Ole Miss":    {offRank:12,defRank:44},
+  "Kansas State": {offRank:15,defRank:40},"Michigan":    {offRank:45,defRank:17},
+  "S. Carolina":  {offRank:25,defRank:16},"Washington":  {offRank:40,defRank:22},
+  "Missouri":     {offRank:36,defRank:21},"Auburn":      {offRank:76,defRank:23},
+  "Arkansas":     {offRank:25,defRank:94},"Minnesota":   {offRank:53,defRank:20},
+  "Clemson":      {offRank:66,defRank:38},"Wisconsin":   {offRank:113,defRank:34},
+  "BYU":          {offRank:18,defRank:19},"Vanderbilt":  {offRank:16,defRank:44},
 };
+
+// Maps CFBD team names → our displayName() format for the ones that differ
+const CFBD_TO_DISPLAY = {
+  "Miami":"Miami (FL)","South Carolina":"S. Carolina","North Carolina":"N. Carolina",
+  "Mississippi State":"Miss. State","Florida State":"Florida St.",
+  "Michigan State":"Michigan St.","Oklahoma State":"Okla. State",
+  "Washington State":"Wash. State","Colorado State":"Colorado St.",
+  "Western Michigan":"W. Michigan","Eastern Michigan":"E. Michigan",
+  "Western Kentucky":"W. Kentucky","Eastern Kentucky":"E. Kentucky",
+  "Central Florida":"UCF","Florida International":"FIU",
+  "Florida Atlantic":"Florida Atl","Appalachian State":"App. State",
+  "North Dakota State":"NDSU","South Dakota State":"SDSU",
+  "Jacksonville State":"Jax. State","Middle Tennessee":"Mid. Tenn.",
+  "Sam Houston":"Sam Houston","Louisiana Monroe":"UL Monroe",
+};
+
+const SP_CACHE_KEY = "sp_plus_cache_v1";
+const SP_CACHE_TTL = 7 * 24 * 60 * 60 * 1000; // 7 days
+
+function normalizeCFBDName(name) {
+  return CFBD_TO_DISPLAY[name] || name;
+}
+
+function parseCFBDResponse(data) {
+  const map = {};
+  for (const t of data) {
+    const key = normalizeCFBDName(t.team);
+    if (t.offense && t.defense) {
+      map[key] = {
+        offRank: t.offense.ranking,
+        defRank: t.defense.ranking,
+        offRating: t.offense.rating,
+        defRating: t.defense.rating,
+      };
+    }
+  }
+  return map;
+}
+
+async function fetchLiveSPRatings() {
+  // Check cache first
+  try {
+    const raw = localStorage.getItem(SP_CACHE_KEY);
+    if (raw) {
+      const { data, ts } = JSON.parse(raw);
+      if (Date.now() - ts < SP_CACHE_TTL) return data;
+    }
+  } catch {}
+  // Fetch from Netlify function
+  try {
+    const res = await fetch("/.netlify/functions/sp-ratings");
+    if (!res.ok) throw new Error(`SP fetch failed ${res.status}`);
+    const json = await res.json();
+    const parsed = parseCFBDResponse(json);
+    localStorage.setItem(SP_CACHE_KEY, JSON.stringify({ data: parsed, ts: Date.now() }));
+    return parsed;
+  } catch (e) {
+    console.warn("SP+ live fetch failed, using fallback:", e.message);
+    return null; // fallback to static
+  }
+}
+
 
 function displayName(fullName) {
   if (!fullName) return "";
@@ -280,7 +320,7 @@ function iProb(a){if(!a)return 0.5;return 1/toDec(a);}
 function edge(p,d){if(!p||!d)return 0;return iProb(p)*toDec(d)-1;}
 function fmt(n){if(n==null||isNaN(Number(n)))return "—";const x=Number(n);return x>0?`+${x}`:`${x}`;}
 
-function analyze(game) {
+function analyze(game, spRatings = {}) {
   const lh=game.lean===game.home;
   const ml=game.ml||{},sp=game.spread||{},ou=game.ou||{};
   const mlP=lh?ml.home_pin:ml.away_pin, mlD=lh?ml.home_dk:ml.away_dk;
@@ -357,8 +397,9 @@ function analyze(game) {
   // ── SP+ 2026 Ratings ─────────────────────────────────────────────────────────
   const leanDisp2 = lh ? (game.homeDisplay||game.home) : (game.awayDisplay||game.away);
   const dogDisp2  = lh ? (game.awayDisplay||game.away) : (game.homeDisplay||game.home);
-  const leanSP = SP_PLUS_2026[leanDisp2] || null;
-  const dogSP  = SP_PLUS_2026[dogDisp2]  || null;
+  const spSource  = (spRatings && Object.keys(spRatings).length > 0) ? spRatings : SP_STATIC_FALLBACK;
+  const leanSP = spSource[leanDisp2] || null;
+  const dogSP  = spSource[dogDisp2]  || null;
   const spFlag = (leanSP || dogSP) ? {
     leanOff: leanSP?.offRank, leanDef: leanSP?.defRank,
     dogOff:  dogSP?.offRank,  dogDef:  dogSP?.defRank,
@@ -839,12 +880,12 @@ function BetLogPanel({log, onDelete, onClose}) {
   );
 }
 
-function GameCard({rawGame, onLogBet}){
+function GameCard({rawGame, onLogBet, spRatings={}}){
   const [tab,setTab]=useState("ML");
   const [myPrices,setMyPrices]=useState({ML:"",SPREAD:"","O/U":""});
   const [showLogForm,setShowLogForm]=useState(false);
   const [logStake,setLogStake]=useState("");
-  const {optimal,bets,sig,tags,mlVacuum,impliedTotals,keyNum,rlm,spFlag}=analyze(rawGame);
+  const {optimal,bets,sig,tags,mlVacuum,impliedTotals,keyNum,rlm,spFlag}=analyze(rawGame, spRatings);
   const lh=rawGame.lean===rawGame.home;
   const mlP=lh?rawGame.ml?.home_pin:rawGame.ml?.away_pin;
   const steamDetected=rawGame.lineMove?.hasData&&rawGame.lineMove?.ml<-3;
@@ -945,6 +986,11 @@ export default function App(){
   const [sortDir,setSortDir]=useState("desc");
   const [betLog,setBetLog]=useState(()=>loadBetLog());
   const [betLogOpen,setBetLogOpen]=useState(false);
+  const [spRatings,setSpRatings]=useState({});
+
+  useEffect(()=>{
+    fetchLiveSPRatings().then(data=>{ if(data) setSpRatings(data); });
+  },[]);
 
   function handleLogBet(bet) {
     const updated = [...betLog, bet];
@@ -983,15 +1029,15 @@ export default function App(){
   useEffect(()=>{load(sport);},[sport]);
 
   const cur=games[sport]||[],isLoading=loading[sport],err=errors[sport],upd=updated[sport];
-  const filtered=cur.filter(g=>{try{return analyze(g).sig>=sigFilter;}catch{return false;}});
+  const filtered=cur.filter(g=>{try{return analyze(g,spRatings).sig>=sigFilter;}catch{return false;}});
   const sorted=[...filtered].sort((a,b)=>{
     let av,bv;
     if(sortBy==="time"){
       av=a.commenceTime?new Date(a.commenceTime).getTime():0;
       bv=b.commenceTime?new Date(b.commenceTime).getTime():0;
     }else{
-      try{av=analyze(a).optimal.edge;}catch{av=-Infinity;}
-      try{bv=analyze(b).optimal.edge;}catch{bv=-Infinity;}
+      try{av=analyze(a,spRatings).optimal.edge;}catch{av=-Infinity;}
+      try{bv=analyze(b,spRatings).optimal.edge;}catch{bv=-Infinity;}
     }
     return sortDir==="asc"?av-bv:bv-av;
   });
@@ -1075,7 +1121,7 @@ export default function App(){
         )}
         {!isLoading&&!err&&sorted.length===0&&cur.length>0&&<div style={{textAlign:"center",padding:"40px 0",color:C.textMuted,fontSize:11}}>No games at Signal {sigFilter}+ — try lowering the filter</div>}
         {!isLoading&&!err&&cur.length===0&&upd&&<div style={{textAlign:"center",padding:"40px 0",color:C.textMuted,fontSize:11}}>No {sport} games today</div>}
-        {!isLoading&&sorted.map((g,i)=>{try{return<GameCard key={i} rawGame={g} onLogBet={handleLogBet}/>;}catch{return null;}})}
+        {!isLoading&&sorted.map((g,i)=>{try{return<GameCard key={i} rawGame={g} onLogBet={handleLogBet} spRatings={spRatings}/>;}catch{return null;}})}
       </div>
       {betLogOpen&&<BetLogPanel log={betLog} onDelete={handleDeleteBet} onClose={()=>setBetLogOpen(false)}/>}
       </div>
