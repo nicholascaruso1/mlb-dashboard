@@ -112,7 +112,14 @@ async function fetchLiveOdds(sport) {
   cleanOldLines();
 
   const books = ALL_BOOKS.join(",");
-  const url = `/odds-api/v4/sports/${sportObj.oddsKey}/odds/?apiKey=${ODDS_API_KEY}&regions=us&markets=h2h,spreads,totals&oddsFormat=american&bookmakers=${books}`;
+  const isCollege = sportObj.oddsKey.includes("ncaa");
+  let dateParams = "";
+  if (isCollege) {
+    const from = new Date(); from.setDate(from.getDate()-2); from.setHours(0,0,0,0);
+    const to   = new Date(); to.setDate(to.getDate()+5);    to.setHours(23,59,59,999);
+    dateParams = `&commenceTimeFrom=${from.toISOString()}&commenceTimeTo=${to.toISOString()}`;
+  }
+  const url = `/odds-api/v4/sports/${sportObj.oddsKey}/odds/?apiKey=${ODDS_API_KEY}&regions=us&markets=h2h,spreads,totals&oddsFormat=american&bookmakers=${books}${dateParams}`;
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Odds API error ${res.status}`);
   const data = await res.json();
