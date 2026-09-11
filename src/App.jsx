@@ -270,9 +270,6 @@ function analyze(game) {
   })();
 
   // ── RLM Formalization ────────────────────────────────────────────────────────
-  // RLM = line moved AGAINST public direction (line moved toward dog despite public on favorite)
-  // Requires opening line data. Public proxy: consensus agree % on lean side
-  const lm = game.lineMove || {};
   const rlm = (() => {
     if (!lm.hasData) return null;
     const con = game.consensus || {};
