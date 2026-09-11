@@ -59,6 +59,8 @@ const TWO_WORD_MASCOTS = new Set([
   "Nittany Lions","Mean Green","Yellow Jackets","Golden Eagles","Red Raiders",
   "Horned Frogs","Demon Deacons","Sun Devils","Fighting Irish","Golden Bears",
   "Blue Raiders","Mountain Hawks","Running Rebels","Ragin Cajuns","Black Bears",
+  "Wolf Pack","Tar Heels","Cardinal and Gold","Big Green","Silver Hawks",
+  "Screaming Eagles","River Hawks","Red Foxes","Blue Hens","Green Wave",
 ]);
 
 function displayName(fullName) {
@@ -238,10 +240,11 @@ function analyze(game) {
   const spP=lh?sp.home_pin:sp.away_pin, spD=lh?sp.home_dk:sp.away_dk, spL=lh?sp.home_line:sp.away_line;
   const oe=edge(ou.over_pin,ou.over_dk), ue=edge(ou.under_pin,ou.under_dk);
   const ouSide=oe>=ue?"OVER":"UNDER";
+  const leanDisp = lh ? (game.homeDisplay||game.home) : (game.awayDisplay||game.away);
   const bets=[
-    {type:"ML",     edge:edge(mlP,mlD), label:`${game.lean} ML`,             dk:mlD,pin:mlP},
-    {type:"SPREAD", edge:edge(spP,spD), label:`${game.lean} ${spL>0?"+":""}${spL}`, dk:spD,pin:spP},
-    {type:"O/U",    edge:Math.max(oe,ue),label:`${ouSide} ${ou.total}`,       dk:ouSide==="OVER"?ou.over_dk:ou.under_dk,pin:ouSide==="OVER"?ou.over_pin:ou.under_pin},
+    {type:"ML",     edge:edge(mlP,mlD), label:`${leanDisp} ML`,                          dk:mlD,pin:mlP},
+    {type:"SPREAD", edge:edge(spP,spD), label:`${leanDisp} ${spL>0?"+":""}${spL}`,       dk:spD,pin:spP},
+    {type:"O/U",    edge:Math.max(oe,ue),label:`${ouSide} ${ou.total}`,                  dk:ouSide==="OVER"?ou.over_dk:ou.under_dk,pin:ouSide==="OVER"?ou.over_pin:ou.under_pin},
   ];
   bets.sort((a,b)=>b.edge-a.edge);
   const impl=iProb(mlP);
@@ -360,7 +363,7 @@ function ConsensusBar({consensus, lineMove, sharpScore}) {
         </div>
 
         {/* Line movement */}
-        {lineMove?.hasData && (
+        {lineMove?.hasData && lineMove.ml!=null && (
           <div style={{display:"flex",alignItems:"center",gap:5,background:steamDetected?C.steamBg:"#0c1210",border:`1px solid ${steamDetected?"rgba(248,113,113,0.25)":C.cardBorder}`,borderRadius:6,padding:"4px 8px"}}>
             <span style={{fontSize:9,color:C.textMuted}}>LINE MOVE</span>
             <span style={{fontSize:11,fontWeight:700,color:lineMove.ml<0?C.positive:lineMove.ml>0?"#f87171":C.textMuted}}>
@@ -371,7 +374,7 @@ function ConsensusBar({consensus, lineMove, sharpScore}) {
         )}
 
         {/* Total movement */}
-        {lineMove?.hasData && lineMove.ou!==0 && (
+        {lineMove?.hasData && lineMove.ou!=null && lineMove.ou!==0 && (
           <div style={{display:"flex",alignItems:"center",gap:5,background:"#0c1210",border:`1px solid ${C.cardBorder}`,borderRadius:6,padding:"4px 8px"}}>
             <span style={{fontSize:9,color:C.textMuted}}>TOTAL</span>
             <span style={{fontSize:11,fontWeight:700,color:C.textDim}}>
