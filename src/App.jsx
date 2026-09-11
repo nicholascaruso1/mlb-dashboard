@@ -117,7 +117,7 @@ async function fetchLiveOdds(sport) {
   if (isCollege) {
     const from = new Date(); from.setDate(from.getDate()-2); from.setHours(0,0,0,0);
     const to   = new Date(); to.setDate(to.getDate()+5);    to.setHours(23,59,59,999);
-    dateParams = `&commenceTimeFrom=${from.toISOString()}&commenceTimeTo=${to.toISOString()}`;
+    dateParams = `&commenceTimeFrom=${from.toISOString().split('.')[0]}Z&commenceTimeTo=${to.toISOString().split('.')[0]}Z`;
   }
   const url = `/odds-api/v4/sports/${sportObj.oddsKey}/odds/?apiKey=${ODDS_API_KEY}&regions=us&markets=h2h,spreads,totals&oddsFormat=american&bookmakers=${books}${dateParams}`;
   const res = await fetch(url);
