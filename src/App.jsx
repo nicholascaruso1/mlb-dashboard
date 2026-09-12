@@ -386,11 +386,16 @@ function analyze(game, spRatings = {}) {
     if (!lm.hasData) return null;
     const con = game.consensus || {};
     const publicOnLean = con.total > 0 ? con.agree / con.total : 0;
-    // Line moved toward dog (ml moved positive = away from lean) while public is heavily on lean
-    const lineMovedAgainstPublic = lm.ml > 2 && publicOnLean > 0.6;
-    // Line moved toward dog on spread while public consensus is on lean
-    const spreadRLM = lm.ou !== 0 && publicOnLean > 0.6;
-    if (lineMovedAgainstPublic) return { type: "ML", magnitude: lm.ml, publicPct: Math.round(publicOnLean * 100) };
+    const dogDisp  = lh ? (game.awayDisplay||game.away) : (game.homeDisplay||game.home);
+    const leanDisp = lh ? (game.homeDisplay||game.home) : (game.awayDisplay||game.away);
+    if (lm.ml > 2 && publicOnLean > 0.6) return {
+      market:"ML", magnitude:lm.ml, publicPct:Math.round(publicOnLean*100),
+      backingTeam:dogDisp, fadingTeam:leanDisp,
+    };
+    if (lm.ou != null && lm.ou !== 0 && publicOnLean > 0.6) return {
+      market:"TOTAL", magnitude:lm.ou, publicPct:Math.round(publicOnLean*100),
+      backingTeam:dogDisp, fadingTeam:leanDisp,
+    };
     return null;
   })();
 
@@ -470,7 +475,7 @@ function ConsensusBar({consensus, lineMove, sharpScore}) {
         {/* Line movement */}
         {lineMove?.hasData && lineMove.ml!=null && (
           <div style={{display:"flex",alignItems:"center",gap:5,background:steamDetected?C.steamBg:"#0c1210",border:`1px solid ${steamDetected?"rgba(248,113,113,0.25)":C.cardBorder}`,borderRadius:6,padding:"4px 8px"}}>
-            <span style={{fontSize:9,color:C.textMuted}}>LINE MOVE</span>
+            <span style={{fontSize:9,color:C.textMuted}}>ML</span>
             <span style={{fontSize:11,fontWeight:700,color:lineMove.ml<0?C.positive:lineMove.ml>0?"#f87171":C.textMuted}}>
               {lineMove.ml===0?"—":lineMove.ml<0?`↓ ${lineMove.ml}¢`:`↑ +${lineMove.ml}¢`}
             </span>
@@ -481,7 +486,7 @@ function ConsensusBar({consensus, lineMove, sharpScore}) {
         {/* Total movement */}
         {lineMove?.hasData && lineMove.ou!=null && lineMove.ou!==0 && (
           <div style={{display:"flex",alignItems:"center",gap:5,background:"#0c1210",border:`1px solid ${C.cardBorder}`,borderRadius:6,padding:"4px 8px"}}>
-            <span style={{fontSize:9,color:C.textMuted}}>TOTAL</span>
+            <span style={{fontSize:9,color:C.textMuted}}>O/U</span>
             <span style={{fontSize:11,fontWeight:700,color:C.textDim}}>
               {lineMove.ou>0?`↑ +${lineMove.ou}`:` ↓ ${lineMove.ou}`}
             </span>
@@ -525,13 +530,19 @@ function KeyNumBadge({keyNum}) {
 // ─── RLM Badge ────────────────────────────────────────────────────────────────
 function RLMBadge({rlm}) {
   if (!rlm) return null;
+  const dir = rlm.magnitude > 0 ? "toward" : "away from";
   return (
     <div style={{background:"rgba(110,231,183,0.06)",border:"1px solid rgba(110,231,183,0.2)",borderRadius:7,padding:"6px 10px",marginBottom:8,display:"flex",gap:8,alignItems:"flex-start"}}>
       <span style={{fontSize:11,color:C.positive}}>↩</span>
       <div>
-        <span style={{fontSize:9,fontWeight:700,color:C.positive,letterSpacing:"0.07em"}}>REVERSE LINE MOVEMENT</span>
-        <div style={{fontSize:8,color:C.textMuted,marginTop:2,lineHeight:1.4}}>
-          Line moved {rlm.magnitude > 0 ? "away from" : "toward"} lean side despite {rlm.publicPct}% public on lean — sharp money likely fading the public.
+        <span style={{fontSize:9,fontWeight:700,color:C.positive,letterSpacing:"0.07em"}}>
+          {rlm.market} REVERSE LINE MOVEMENT
+        </span>
+        <div style={{fontSize:8,color:C.textMuted,marginTop:2,lineHeight:1.5}}>
+          <span style={{color:C.text,fontWeight:700}}>{rlm.market}</span> line moved {dir}{" "}
+          <span style={{color:C.positive,fontWeight:700}}>{rlm.backingTeam}</span> despite{" "}
+          <span style={{color:"#f87171",fontWeight:700}}>{rlm.publicPct}%</span> public on{" "}
+          <span style={{color:"#f87171",fontWeight:700}}>{rlm.fadingTeam}</span> — sharp money backing {rlm.backingTeam}.
         </div>
       </div>
     </div>
