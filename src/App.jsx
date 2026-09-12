@@ -388,13 +388,17 @@ function analyze(game, spRatings = {}) {
     const publicOnLean = con.total > 0 ? con.agree / con.total : 0;
     const dogDisp  = lh ? (game.awayDisplay||game.away) : (game.homeDisplay||game.home);
     const leanDisp = lh ? (game.homeDisplay||game.home) : (game.awayDisplay||game.away);
+    // ML RLM: line moved toward dog despite heavy public on lean
     if (lm.ml > 2 && publicOnLean > 0.6) return {
       market:"ML", magnitude:lm.ml, publicPct:Math.round(publicOnLean*100),
       backingTeam:dogDisp, fadingTeam:leanDisp,
     };
-    if (lm.ou != null && lm.ou !== 0 && publicOnLean > 0.6) return {
-      market:"TOTAL", magnitude:lm.ou, publicPct:Math.round(publicOnLean*100),
-      backingTeam:dogDisp, fadingTeam:leanDisp,
+    // Total RLM: meaningful total movement (±1+) — direction tells you the sharp side
+    // Total moving UP = sharp money on Over (books adjust up to balance)
+    // Total moving DOWN = sharp money on Under
+    if (lm.ou != null && Math.abs(lm.ou) >= 1) return {
+      market:"TOTAL", magnitude:lm.ou,
+      side: lm.ou < 0 ? "UNDER" : "OVER",
     };
     return null;
   })();
@@ -530,7 +534,7 @@ function KeyNumBadge({keyNum}) {
 // ─── RLM Badge ────────────────────────────────────────────────────────────────
 function RLMBadge({rlm}) {
   if (!rlm) return null;
-  const dir = rlm.magnitude > 0 ? "toward" : "away from";
+  const isTotalRLM = rlm.market === "TOTAL";
   return (
     <div style={{background:"rgba(110,231,183,0.06)",border:"1px solid rgba(110,231,183,0.2)",borderRadius:7,padding:"6px 10px",marginBottom:8,display:"flex",gap:8,alignItems:"flex-start"}}>
       <span style={{fontSize:11,color:C.positive}}>↩</span>
@@ -538,12 +542,22 @@ function RLMBadge({rlm}) {
         <span style={{fontSize:9,fontWeight:700,color:C.positive,letterSpacing:"0.07em"}}>
           {rlm.market} REVERSE LINE MOVEMENT
         </span>
-        <div style={{fontSize:8,color:C.textMuted,marginTop:2,lineHeight:1.5}}>
-          <span style={{color:C.text,fontWeight:700}}>{rlm.market}</span> line moved {dir}{" "}
-          <span style={{color:C.positive,fontWeight:700}}>{rlm.backingTeam}</span> despite{" "}
-          <span style={{color:"#f87171",fontWeight:700}}>{rlm.publicPct}%</span> public on{" "}
-          <span style={{color:"#f87171",fontWeight:700}}>{rlm.fadingTeam}</span> — sharp money backing {rlm.backingTeam}.
-        </div>
+        {isTotalRLM ? (
+          <div style={{fontSize:8,color:C.textMuted,marginTop:2,lineHeight:1.5}}>
+            Total moved <span style={{color:C.positive,fontWeight:700}}>{rlm.magnitude>0?`up +${rlm.magnitude}`:`down ${rlm.magnitude}`}</span> — 
+            suggests sharp money on the <span style={{color:C.positive,fontWeight:700}}>{rlm.side}</span>.{" "}
+            {rlm.side==="UNDER"
+              ? "Books dropping total to attract Over bettors — sharps are on the Under."
+              : "Books raising total to attract Under bettors — sharps are on the Over."}
+          </div>
+        ) : (
+          <div style={{fontSize:8,color:C.textMuted,marginTop:2,lineHeight:1.5}}>
+            ML line moved toward{" "}
+            <span style={{color:C.positive,fontWeight:700}}>{rlm.backingTeam}</span> despite{" "}
+            <span style={{color:"#f87171",fontWeight:700}}>{rlm.publicPct}%</span> public on{" "}
+            <span style={{color:"#f87171",fontWeight:700}}>{rlm.fadingTeam}</span> — sharp money backing {rlm.backingTeam}.
+          </div>
+        )}
       </div>
     </div>
   );
