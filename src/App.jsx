@@ -599,16 +599,14 @@ function OptimalBadge({bet, impliedTotals}){
   );
 }
 
-function BetTabs({active,onChange,bets,isLive}){
-  const tabs = isLive ? ["LIVE","ML","SPREAD","O/U"] : ["ML","SPREAD","O/U"];
+function BetTabs({active,onChange,bets}){
   return(
     <div style={{display:"flex",gap:3,background:"#0a0f0e",borderRadius:8,padding:3,marginBottom:12}}>
-      {tabs.map(t=>{
+      {["ML","SPREAD","O/U"].map(t=>{
         const isActive=active===t;
         const isOpt=bets[0]?.type===t;
-        const isLiveTab=t==="LIVE";
-        return(<button key={t} onClick={()=>onChange(t)} style={{flex:1,padding:"6px 0",borderRadius:6,border:`1px solid ${isActive?(isLiveTab?"rgba(74,222,128,0.3)":"#2d3f52"):"transparent"}`,background:isActive?(isLiveTab?"rgba(74,222,128,0.08)":"#162032"):"transparent",color:isActive?(isLiveTab?"#4ade80":C.text):isOpt?C.textDim:C.textMuted,fontSize:10,fontWeight:700,letterSpacing:"0.07em",cursor:"pointer",position:"relative"}}>
-          {t}{isOpt&&!isActive&&!isLiveTab&&<span style={{position:"absolute",top:-3,right:4,width:5,height:5,borderRadius:"50%",background:C.accent,display:"block"}}/>}
+        return(<button key={t} onClick={()=>onChange(t)} style={{flex:1,padding:"6px 0",borderRadius:6,border:`1px solid ${isActive?"#2d3f52":"transparent"}`,background:isActive?"#162032":"transparent",color:isActive?C.text:isOpt?C.textDim:C.textMuted,fontSize:10,fontWeight:700,letterSpacing:"0.07em",cursor:"pointer",position:"relative"}}>
+          {t}{isOpt&&!isActive&&<span style={{position:"absolute",top:-3,right:4,width:5,height:5,borderRadius:"50%",background:C.accent,display:"block"}}/>}
         </button>);
       })}
     </div>
@@ -1044,13 +1042,24 @@ function GameCard({rawGame, onLogBet, spRatings={}}){
           </div>
         </div>
       )}
-      <BetTabs active={tab} onChange={setTab} bets={bets} isLive={isLive}/>
+      {/* LIVE toggle — standalone button above tabs, only for live games */}
+      {isLive && (
+        <div style={{marginBottom:10}}>
+          <button
+            onClick={()=>setTab(t=>t==="LIVE"?"ML":"LIVE")}
+            style={{width:"100%",padding:"8px 0",borderRadius:8,border:`2px solid ${tab==="LIVE"?"#4ade80":"rgba(74,222,128,0.25)"}`,background:tab==="LIVE"?"rgba(74,222,128,0.08)":"transparent",color:tab==="LIVE"?"#4ade80":"rgba(74,222,128,0.5)",fontSize:11,fontWeight:800,letterSpacing:"0.1em",cursor:"pointer"}}>
+            {tab==="LIVE" ? "● LIVE LINES  ✕ CLOSE" : "● VIEW LIVE LINES"}
+          </button>
+        </div>
+      )}
+
+      <BetTabs active={tab==="LIVE"?"ML":tab} onChange={setTab} bets={bets}/>
 
       <div style={{marginBottom:12}}>
         {tab==="LIVE"  &&<LiveView   game={rawGame}/>}
-        {tab==="ML"    &&<MLView     game={rawGame} mlVacuum={mlVacuum} myPrice={myPrices.ML}     onMyPriceChange={v=>setMyPrice("ML",v)}/>}
-        {tab==="SPREAD"&&<SpreadView game={rawGame}                     myPrice={myPrices.SPREAD} onMyPriceChange={v=>setMyPrice("SPREAD",v)}/>}
-        {tab==="O/U"   &&<OUView     game={rawGame} impliedTotals={impliedTotals} myPrice={myPrices["O/U"]} onMyPriceChange={v=>setMyPrice("O/U",v)}/>}
+        {tab!=="LIVE"  &&tab==="ML"    &&<MLView     game={rawGame} mlVacuum={mlVacuum} myPrice={myPrices.ML}     onMyPriceChange={v=>setMyPrice("ML",v)}/>}
+        {tab!=="LIVE"  &&tab==="SPREAD"&&<SpreadView game={rawGame}                     myPrice={myPrices.SPREAD} onMyPriceChange={v=>setMyPrice("SPREAD",v)}/>}
+        {tab!=="LIVE"  &&tab==="O/U"   &&<OUView     game={rawGame} impliedTotals={impliedTotals} myPrice={myPrices["O/U"]} onMyPriceChange={v=>setMyPrice("O/U",v)}/>}
       </div>
 
       <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
