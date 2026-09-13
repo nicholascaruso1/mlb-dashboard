@@ -598,13 +598,16 @@ function OptimalBadge({bet, impliedTotals}){
   );
 }
 
-function BetTabs({active,onChange,bets}){
+function BetTabs({active,onChange,bets,isLive}){
+  const tabs = isLive ? ["LIVE","ML","SPREAD","O/U"] : ["ML","SPREAD","O/U"];
   return(
     <div style={{display:"flex",gap:3,background:"#0a0f0e",borderRadius:8,padding:3,marginBottom:12}}>
-      {["ML","SPREAD","O/U"].map(t=>{
-        const isActive=active===t,isOpt=bets[0]?.type===t;
-        return(<button key={t} onClick={()=>onChange(t)} style={{flex:1,padding:"6px 0",borderRadius:6,border:`1px solid ${isActive?"#2d3f52":"transparent"}`,background:isActive?"#162032":"transparent",color:isActive?C.text:isOpt?C.textDim:C.textMuted,fontSize:10,fontWeight:700,letterSpacing:"0.07em",cursor:"pointer",position:"relative"}}>
-          {t}{isOpt&&!isActive&&<span style={{position:"absolute",top:-3,right:4,width:5,height:5,borderRadius:"50%",background:C.accent,display:"block"}}/>}
+      {tabs.map(t=>{
+        const isActive=active===t;
+        const isOpt=bets[0]?.type===t;
+        const isLiveTab=t==="LIVE";
+        return(<button key={t} onClick={()=>onChange(t)} style={{flex:1,padding:"6px 0",borderRadius:6,border:`1px solid ${isActive?(isLiveTab?"rgba(74,222,128,0.3)":"#2d3f52"):"transparent"}`,background:isActive?(isLiveTab?"rgba(74,222,128,0.08)":"#162032"):"transparent",color:isActive?(isLiveTab?"#4ade80":C.text):isOpt?C.textDim:C.textMuted,fontSize:10,fontWeight:700,letterSpacing:"0.07em",cursor:"pointer",position:"relative"}}>
+          {t}{isOpt&&!isActive&&!isLiveTab&&<span style={{position:"absolute",top:-3,right:4,width:5,height:5,borderRadius:"50%",background:C.accent,display:"block"}}/>}
         </button>);
       })}
     </div>
@@ -903,8 +906,63 @@ function BetLogPanel({log, onDelete, onClose}) {
   );
 }
 
+// ─── Live View ────────────────────────────────────────────────────────────────
+function LiveView({game}) {
+  const lh = game.lean === game.home;
+  const ml = game.ml || {}, sp = game.spread || {}, ou = game.ou || {};
+  const lm = game.lineMove || {};
+  const rows = [
+    { label:"ML",     leanVal: fmt(lh?ml.home_dk:ml.away_dk),  leanPin: fmt(lh?ml.home_pin:ml.away_pin),  dogVal: fmt(lh?ml.away_dk:ml.home_dk),  move: lm.ml  != null ? lm.ml  : null, moveLabel:"ML" },
+    { label:"SPREAD", leanVal: fmt(lh?sp.home_line:sp.away_line), leanPin: fmt(lh?sp.home_pin:sp.away_pin), dogVal: fmt(lh?sp.away_line:sp.home_line), move: null,   moveLabel:"SPREAD" },
+    { label:"O/U",    leanVal: `O ${ou.total}`,                  leanPin: fmt(ou.over_pin),                 dogVal: `U ${ou.total}`,                 move: lm.ou  != null ? lm.ou  : null, moveLabel:"TOTAL" },
+  ];
+  const leanDisp = lh?(game.homeDisplay||game.home):(game.awayDisplay||game.away);
+  const dogDisp  = lh?(game.awayDisplay||game.away):(game.homeDisplay||game.home);
+  return (
+    <div>
+      <div style={{background:"rgba(74,222,128,0.05)",border:"1px solid rgba(74,222,128,0.15)",borderRadius:7,padding:"6px 10px",marginBottom:10,display:"flex",gap:6,alignItems:"center"}}>
+        <span style={{fontSize:9,color:"#4ade80"}}>● LIVE</span>
+        <span style={{fontSize:8,color:C.textMuted}}>Line movement reflects game score — not sharp pre-game action. Edge vs Pinnacle still valid for live bet value.</span>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"60px 1fr 1fr 60px",gap:6,marginBottom:6}}>
+        <div style={{fontSize:8,color:C.textMuted}}>MARKET</div>
+        <div style={{fontSize:8,color:C.lean}}>▲ {leanDisp}</div>
+        <div style={{fontSize:8,color:C.nonLean}}>▼ {dogDisp}</div>
+        <div style={{fontSize:8,color:C.textMuted}}>MOVE</div>
+      </div>
+      {rows.map(r=>(
+        <div key={r.label} style={{display:"grid",gridTemplateColumns:"60px 1fr 1fr 60px",gap:6,padding:"7px 0",borderTop:`1px solid ${C.cardBorder}`}}>
+          <div style={{fontSize:9,color:C.textMuted,fontWeight:700}}>{r.label}</div>
+          <div>
+            <div style={{fontFamily:"monospace",fontSize:13,fontWeight:700,color:C.lean}}>{r.leanVal}</div>
+            {r.leanPin && <div style={{fontSize:8,color:C.textMuted}}>PIN {r.leanPin}</div>}
+          </div>
+          <div>
+            <div style={{fontFamily:"monospace",fontSize:13,fontWeight:700,color:C.nonLean}}>{r.dogVal}</div>
+          </div>
+          <div>
+            {r.move != null && r.move !== 0 ? (
+              <span style={{fontSize:10,fontWeight:700,fontFamily:"monospace",color:r.move<0?"#4ade80":"#f87171"}}>
+                {r.move>0?`+${r.move}`:r.move}
+              </span>
+            ) : <span style={{fontSize:10,color:C.textMuted}}>—</span>}
+          </div>
+        </div>
+      ))}
+      <div style={{marginTop:8,padding:"6px 8px",background:"#0a0f0e",border:`1px solid ${C.cardBorder}`,borderRadius:6}}>
+        <div style={{fontSize:8,color:C.textMuted}}>LIVE EDGE vs PIN (DK) · {leanDisp} ML</div>
+        <div style={{fontFamily:"monospace",fontSize:13,fontWeight:700,color:C.positive,marginTop:2}}>
+          {lh ? fmt(ml.home_dk) : fmt(ml.away_dk)} <span style={{fontSize:9,color:C.textMuted}}>DK</span>
+          <span style={{fontSize:9,color:C.textMuted,margin:"0 6px"}>vs</span>
+          {lh ? fmt(ml.home_pin) : fmt(ml.away_pin)} <span style={{fontSize:9,color:C.textMuted}}>PIN</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function GameCard({rawGame, onLogBet, spRatings={}}){
-  const [tab,setTab]=useState("ML");
+  const [tab,setTab]=useState(rawGame.isLive ? "LIVE" : "ML");
   const [myPrices,setMyPrices]=useState({ML:"",SPREAD:"","O/U":""});
   const [showLogForm,setShowLogForm]=useState(false);
   const [logStake,setLogStake]=useState("");
@@ -984,9 +1042,10 @@ function GameCard({rawGame, onLogBet, spRatings={}}){
           </div>
         </div>
       )}
-      <BetTabs active={tab} onChange={setTab} bets={bets}/>
+      <BetTabs active={tab} onChange={setTab} bets={bets} isLive={rawGame.isLive}/>
 
       <div style={{marginBottom:12}}>
+        {tab==="LIVE"  &&<LiveView   game={rawGame}/>}
         {tab==="ML"    &&<MLView     game={rawGame} mlVacuum={mlVacuum} myPrice={myPrices.ML}     onMyPriceChange={v=>setMyPrice("ML",v)}/>}
         {tab==="SPREAD"&&<SpreadView game={rawGame}                     myPrice={myPrices.SPREAD} onMyPriceChange={v=>setMyPrice("SPREAD",v)}/>}
         {tab==="O/U"   &&<OUView     game={rawGame} impliedTotals={impliedTotals} myPrice={myPrices["O/U"]} onMyPriceChange={v=>setMyPrice("O/U",v)}/>}
