@@ -1042,16 +1042,17 @@ function GameCard({rawGame, onLogBet, spRatings={}}){
           </div>
         </div>
       )}
-      {/* LIVE toggle — standalone button above tabs, only for live games */}
-      {isLive && (
-        <div style={{marginBottom:10}}>
-          <button
-            onClick={()=>setTab(t=>t==="LIVE"?"ML":"LIVE")}
-            style={{width:"100%",padding:"8px 0",borderRadius:8,border:`2px solid ${tab==="LIVE"?"#4ade80":"rgba(74,222,128,0.25)"}`,background:tab==="LIVE"?"rgba(74,222,128,0.08)":"transparent",color:tab==="LIVE"?"#4ade80":"rgba(74,222,128,0.5)",fontSize:11,fontWeight:800,letterSpacing:"0.1em",cursor:"pointer"}}>
-            {tab==="LIVE" ? "● LIVE LINES  ✕ CLOSE" : "● VIEW LIVE LINES"}
-          </button>
-        </div>
-      )}
+      <div style={{display: isLive ? "block" : "none", marginBottom:10}}>
+        <button
+          onClick={()=>setTab(tab==="LIVE" ? "ML" : "LIVE")}
+          style={{width:"100%",padding:"8px 0",borderRadius:8,
+            border: tab==="LIVE" ? "2px solid #4ade80" : "2px solid rgba(74,222,128,0.25)",
+            background: tab==="LIVE" ? "rgba(74,222,128,0.08)" : "transparent",
+            color: tab==="LIVE" ? "#4ade80" : "rgba(74,222,128,0.5)",
+            fontSize:11,fontWeight:800,letterSpacing:"0.1em",cursor:"pointer"}}>
+          {tab==="LIVE" ? "● LIVE LINES  ✕ CLOSE" : "● VIEW LIVE LINES →"}
+        </button>
+      </div>
 
       <BetTabs active={tab==="LIVE"?"ML":tab} onChange={setTab} bets={bets}/>
 
