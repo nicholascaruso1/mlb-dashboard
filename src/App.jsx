@@ -305,7 +305,9 @@ async function fetchLiveOdds(sport) {
       away, home,
       awayDisplay: displayName(game.away_team),
       homeDisplay: displayName(game.home_team),
-      time: formatTime(game.commence_time), commenceTime: game.commence_time, ml, spread, ou, lean, gameKey,
+      time: formatTime(game.commence_time), commenceTime: game.commence_time,
+      isLive: new Date(game.commence_time).getTime() < Date.now(),
+      ml, spread, ou, lean, gameKey,
       consensus: { agree: agreeBooks, total: totalBooks, sharpAgree, sharpTotal },
       lineMove:  { ml: mlMove, ou: ouMove, hasData: !!opening },
     };
@@ -361,7 +363,7 @@ function analyze(game, spRatings = {}) {
             : impl>0.54&&bets[0].edge>0.01&&conScore>=0.6   ? 3
             : impl>0.51&&conScore>=0.5                       ? 2 : 1;
   const gap=Math.abs(toDec(mlP)-toDec(mlD));
-  const lm=game.lineMove||{};
+  const lm = game.isLive ? { hasData: false } : (game.lineMove || {});
   const tags={
     MACRO:   impl>0.52,
     MARKET:  impl>0.54,
@@ -909,14 +911,17 @@ function GameCard({rawGame, onLogBet, spRatings={}}){
   const {optimal,bets,sig,tags,mlVacuum,impliedTotals,keyNum,rlm,spFlag}=analyze(rawGame, spRatings);
   const lh=rawGame.lean===rawGame.home;
   const mlP=lh?rawGame.ml?.home_pin:rawGame.ml?.away_pin;
-  const steamDetected=rawGame.lineMove?.hasData&&rawGame.lineMove?.ml<-3;
+  const steamDetected=!rawGame.isLive&&rawGame.lineMove?.hasData&&rawGame.lineMove?.ml<-3;
   const setMyPrice = (t,v) => setMyPrices(p=>({...p,[t]:v}));
 
   return(
     <div style={{background:steamDetected?"rgba(248,113,113,0.04)":C.card,border:`1px solid ${steamDetected?"rgba(248,113,113,0.2)":C.cardBorder}`,borderRadius:12,padding:"14px 14px 12px",marginBottom:10}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:12}}>
         <div>
-          <div style={{fontSize:9,color:C.textMuted,letterSpacing:"0.06em",marginBottom:4}}>{rawGame.time}</div>
+          <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:4}}>
+            <span style={{fontSize:9,color:C.textMuted,letterSpacing:"0.06em"}}>{rawGame.time}</span>
+            {rawGame.isLive && <span style={{fontSize:8,fontWeight:700,color:"#4ade80",background:"rgba(74,222,128,0.1)",border:"1px solid rgba(74,222,128,0.3)",borderRadius:3,padding:"1px 5px",letterSpacing:"0.06em"}}>● LIVE</span>}
+          </div>
           <div style={{display:"flex",alignItems:"center",gap:8}}>
             <span style={{fontSize:18,fontWeight:800,fontFamily:"monospace",color:!lh?C.lean:C.nonLean}}>{rawGame.awayDisplay}</span>
             <span style={{fontSize:10,color:C.textMuted}}>@</span>
@@ -934,7 +939,7 @@ function GameCard({rawGame, onLogBet, spRatings={}}){
         </div>
       </div>
 
-      <ConsensusBar consensus={rawGame.consensus} lineMove={rawGame.lineMove} sharpScore={rawGame.consensus?.sharpTotal>0?rawGame.consensus.sharpAgree/rawGame.consensus.sharpTotal:0}/>
+      <ConsensusBar consensus={rawGame.consensus} lineMove={rawGame.isLive ? null : rawGame.lineMove} sharpScore={rawGame.consensus?.sharpTotal>0?rawGame.consensus.sharpAgree/rawGame.consensus.sharpTotal:0}/>
       <KeyNumBadge keyNum={keyNum}/>
       <RLMBadge rlm={rlm}/>
       <SPBadge spFlag={spFlag} optimalType={optimal?.type}/>
