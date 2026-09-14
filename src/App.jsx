@@ -424,7 +424,73 @@ function analyze(game, spRatings = {}) {
     overVetoTeam: (leanSP?.defRank <= 8 ? leanDisp2 : null) || (dogSP?.defRank <= 8 ? dogDisp2 : null),
   } : null;
 
-  return {optimal:bets[0],bets,sig,tags,impl,conScore,sharpScore,mlVacuum,impliedTotals,keyNum,rlm,spFlag};
+  return {optimal:bets[0],bets,sig,tags,impl,conScore,sharpScore,mlVacuum,impliedTotals,keyNum,rlm,spFlag,gap,lm,leanDisp:leanDisp2};
+}
+
+// ─── Signal Explainability ─────────────────────────────────────────────────────
+// Maps each tag pill to: which of the 4 framework layers it represents, the exact
+// rule/threshold being evaluated, the live numbers plugged into that rule, and a
+// plain-language verdict. This is what powers the tap-to-explain panel on slide 2.
+function explainSignals(a) {
+  const pct = n => n==null||isNaN(n) ? "—" : `${(n*100).toFixed(1)}%`;
+  const {impl, gap, conScore, bets, lm, tags} = a;
+  const edgeTop = bets?.[0]?.edge ?? 0;
+
+  return {
+    MACRO: {
+      layer: "Layer 1 · Macro",
+      concept: "Situational context — rest, travel, schedule spot. Currently implemented as a placeholder threshold on market pricing until real NFL situational data (rest/travel/coaching flags) is wired in — it is not yet reading actual macro inputs the way MLB's automated rest-day check does.",
+      rule: "Pinnacle implied win probability > 52%",
+      numbers: `Pinnacle implied prob = ${pct(impl)}`,
+      pass: tags.MACRO,
+      verdict: tags.MACRO
+        ? `Lit because implied probability (${pct(impl)}) clears the 52% floor.`
+        : `Unlit because implied probability (${pct(impl)}) is at or below 52%.`,
+      caveat: "Honest caveat: this tag will read the same as MARKET until situational Macro logic (rest days, travel, coaching system flags) is built for NFL specifically.",
+    },
+    MARKET: {
+      layer: "Layer 2 · Market",
+      concept: "Market structure confirmation — is Pinnacle (the sharp reference book) pricing the lean side strongly enough to trust the market's own signal?",
+      rule: "Pinnacle implied win probability > 54%",
+      numbers: `Pinnacle implied prob = ${pct(impl)}`,
+      pass: tags.MARKET,
+      verdict: tags.MARKET
+        ? `Lit because implied probability (${pct(impl)}) clears the 54% floor.`
+        : `Unlit because implied probability (${pct(impl)}) is at or below 54% — market isn't leaning hard enough on its own to confirm.`,
+    },
+    CONFIRM: {
+      layer: "Layer 3 · Confirm (Correlated)",
+      concept: "Correlated market confirmation — do the books agree with each other, and is the price gap between Pinnacle and DraftKings tight (i.e. not a fluke/stale line)?",
+      rule: "Pinnacle-vs-DK price gap < 0.15 decimal AND book consensus ≥ 60%",
+      numbers: `Price gap = ${gap!=null?gap.toFixed(3):"—"} · Consensus = ${pct(conScore)}`,
+      pass: tags.CONFIRM,
+      verdict: tags.CONFIRM
+        ? `Lit — price gap (${gap!=null?gap.toFixed(3):"—"}) is tight and ${pct(conScore)} of tracked books agree.`
+        : `Unlit — either the DK/Pinnacle price gap is too wide, book consensus is below 60%, or both.`,
+    },
+    VALUE: {
+      layer: "Layer 4 · Value",
+      concept: "CLV entry signal — does DraftKings currently offer better pricing than Pinnacle's fair value on the optimal side, i.e. is there a betting edge right now?",
+      rule: "Best available edge vs Pinnacle > 1%",
+      numbers: `Top bet edge (${bets?.[0]?.label||"—"}) = ${bets?.[0]?.edge!=null?(bets[0].edge*100).toFixed(2)+"%":"—"}`,
+      pass: tags.VALUE,
+      verdict: tags.VALUE
+        ? `Lit — DK is pricing ${(edgeTop*100).toFixed(2)}% better than Pinnacle fair value on the top bet.`
+        : `Unlit — DK's price is within 1% of Pinnacle fair value (or worse), so there's no real CLV edge to capture yet.`,
+    },
+    STEAM: {
+      layer: "Cross-cutting · Steam",
+      concept: "Detects coordinated sharp money by watching for fast line movement toward the lean since the opening line — not one of the 4 core layers, but an urgency flag layered on top.",
+      rule: "Opening-line tracker has data AND ML has moved 3+ cents toward the lean",
+      numbers: lm?.hasData ? `ML movement since open = ${lm.ml>0?"+":""}${lm.ml}` : "No opening-line snapshot stored yet for this game",
+      pass: tags.STEAM,
+      verdict: tags.STEAM
+        ? `Lit — the line has moved ${lm?.ml} cents toward the lean since it opened, consistent with sharp money.`
+        : lm?.hasData
+          ? `Unlit — line movement (${lm?.ml ?? 0}) hasn't hit the 3-cent threshold yet.`
+          : `Unlit — no opening line has been captured for this game yet, so movement can't be measured. (Open the app before the line opens to start tracking.)`,
+    },
+  };
 }
 
 // ─── Colors ───────────────────────────────────────────────────────────────────
@@ -443,13 +509,53 @@ function SignalBars({count}){
   return(<div style={{display:"flex",alignItems:"flex-end",gap:2}}>{[1,2,3,4].map(i=><div key={i} style={{width:5,height:4+i*4,background:i<=count?col:"#1c2825",borderRadius:1}}/>)}</div>);
 }
 
-function Tag({label,active,color}){
+function Tag({label,active,color,onClick}){
   const c=color||C.positive;
   return(
-    <span style={{fontSize:10,fontWeight:600,letterSpacing:"0.07em",padding:"3px 8px",borderRadius:4,border:`1px solid ${active?"#2d3f52":C.cardBorder}`,color:active?C.textDim:C.textMuted,background:active?"#162032":"transparent",display:"inline-flex",alignItems:"center",gap:4}}>
+    <button onClick={onClick} style={{fontSize:10,fontWeight:600,letterSpacing:"0.07em",padding:"3px 8px",borderRadius:4,border:`1px solid ${active?"#2d3f52":C.cardBorder}`,color:active?C.textDim:C.textMuted,background:active?"#162032":"transparent",display:"inline-flex",alignItems:"center",gap:4,cursor:"pointer",fontFamily:"inherit"}}>
       {active&&<span style={{width:5,height:5,borderRadius:"50%",background:c,display:"inline-block"}}/>}
       {label}
-    </span>
+      <span style={{fontSize:8,opacity:0.5}}>ⓘ</span>
+    </button>
+  );
+}
+
+// ─── Signal Explanation Panel (slide 2) ─────────────────────────────────────────
+function SignalExplainPanel({explain, expandedTag, onToggle}){
+  const order = ["MACRO","MARKET","CONFIRM","VALUE","STEAM"];
+  return (
+    <div>
+      <div style={{fontSize:9,color:C.textMuted,letterSpacing:"0.07em",marginBottom:8}}>
+        SIGNAL BREAKDOWN · tap any layer to see the live numbers behind it
+      </div>
+      {order.map(key=>{
+        const e = explain[key];
+        const isOpen = expandedTag===key;
+        return (
+          <div key={key} style={{marginBottom:6,border:`1px solid ${e.pass?"#2d3f52":C.cardBorder}`,borderRadius:8,overflow:"hidden"}}>
+            <button onClick={()=>onToggle(isOpen?null:key)} style={{width:"100%",textAlign:"left",background:e.pass?"#111c2c":"#0a0f0e",border:"none",padding:"8px 10px",cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center",fontFamily:"inherit"}}>
+              <span style={{display:"flex",alignItems:"center",gap:6}}>
+                <span style={{width:6,height:6,borderRadius:"50%",background:e.pass?(key==="STEAM"?C.steam:C.positive):C.textMuted,display:"inline-block"}}/>
+                <span style={{fontSize:11,fontWeight:700,color:e.pass?C.text:C.textDim}}>{key}</span>
+                <span style={{fontSize:8,color:C.textMuted}}>{e.layer}</span>
+              </span>
+              <span style={{fontSize:10,color:C.textMuted}}>{isOpen?"▲":"▼"}</span>
+            </button>
+            {isOpen && (
+              <div style={{padding:"8px 10px 10px",background:"#080c0b",borderTop:`1px solid ${C.cardBorder}`}}>
+                <div style={{fontSize:10,color:C.textDim,marginBottom:6,lineHeight:1.5}}>{e.concept}</div>
+                <div style={{fontSize:9,color:C.textMuted,marginBottom:3}}>RULE</div>
+                <div style={{fontSize:10,color:C.text,fontFamily:"monospace",marginBottom:6}}>{e.rule}</div>
+                <div style={{fontSize:9,color:C.textMuted,marginBottom:3}}>LIVE NUMBERS</div>
+                <div style={{fontSize:10,color:C.text,fontFamily:"monospace",marginBottom:6}}>{e.numbers}</div>
+                <div style={{fontSize:10,color:e.pass?C.positive:C.textDim,fontWeight:600,lineHeight:1.5}}>{e.verdict}</div>
+                {e.caveat && <div style={{fontSize:9,color:C.accent,marginTop:6,lineHeight:1.5,fontStyle:"italic"}}>{e.caveat}</div>}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
   );
 }
 
@@ -952,7 +1058,7 @@ function LiveView({game}) {
         <div style={{fontSize:8,color:C.textMuted}}>LIVE EDGE vs PIN (DK) · {leanDisp} ML</div>
         <div style={{fontFamily:"monospace",fontSize:13,fontWeight:700,color:C.positive,marginTop:2}}>
           {lh ? fmt(ml.home_dk) : fmt(ml.away_dk)} <span style={{fontSize:9,color:C.textMuted}}>DK</span>
-          <span style={{fontSize:9,color:C.textMuted,margin:"0 6px"}>vs</span>
+          <span style={{fontSize:9,color:C.textMuted,margin:"0 6px"}}>vs</span>
           {lh ? fmt(ml.home_pin) : fmt(ml.away_pin)} <span style={{fontSize:9,color:C.textMuted}}>PIN</span>
         </div>
       </div>
@@ -960,13 +1066,132 @@ function LiveView({game}) {
   );
 }
 
-function GameCard({rawGame, onLogBet, spRatings={}}){
+// ─── NFL Research Panel (slide 2, NFL only) ────────────────────────────────────
+// Pulls inactives/injury report from a Netlify function that proxies ESPN's public
+// NFL data, and offers on-demand AI analysis via a second function that calls the
+// Anthropic API. Both are on-demand (button-triggered), not auto-fetched, to avoid
+// burning API calls/credits on games the user isn't actively looking at.
+function NFLResearchPanel({game, analysis, explain}){
+  const [data,setData]=useState(null);
+  const [loading,setLoading]=useState(false);
+  const [error,setError]=useState(null);
+  const [ai,setAi]=useState(null);
+  const [aiLoading,setAiLoading]=useState(false);
+  const [aiError,setAiError]=useState(null);
+
+  const awayAbbr = abbr(game.away);
+  const homeAbbr = abbr(game.home);
+
+  const loadContext = async () => {
+    setLoading(true); setError(null);
+    try {
+      const res = await fetch(`/.netlify/functions/nfl-context?away=${awayAbbr}&home=${homeAbbr}&commence=${encodeURIComponent(game.commenceTime||"")}`);
+      const json = await res.json();
+      if (!res.ok || json.error) throw new Error(json.error || `Request failed (${res.status})`);
+      setData(json);
+    } catch(e) {
+      setError(e.message || "Couldn't load injury/inactives data");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const generateAnalysis = async () => {
+    setAiLoading(true); setAiError(null);
+    try {
+      const passedTags = Object.entries(explain).filter(([,v])=>v.pass).map(([k])=>k);
+      const res = await fetch(`/.netlify/functions/ai-analysis`, {
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({
+          away: game.awayDisplay||game.away, home: game.homeDisplay||game.home,
+          lean: analysis.leanDisp, optimal: analysis.optimal,
+          impliedProb: analysis.impl, signalScore: analysis.sig, passedTags,
+          injuries: data?.injuries || null,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok || json.error) throw new Error(json.error || `Request failed (${res.status})`);
+      setAi(json.analysis);
+    } catch(e) {
+      setAiError(e.message || "Couldn't generate analysis");
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
+  return (
+    <div style={{marginTop:14,paddingTop:12,borderTop:`1px solid ${C.cardBorder}`}}>
+      <div style={{fontSize:9,color:C.textMuted,letterSpacing:"0.07em",marginBottom:8}}>
+        NFL RESEARCH · inactives typically post ~90 min before kickoff
+      </div>
+
+      {!data && !loading && (
+        <button onClick={loadContext} style={{width:"100%",background:"transparent",border:`1px dashed ${C.cardBorder}`,borderRadius:7,color:C.textMuted,fontSize:10,fontWeight:600,padding:"8px 0",cursor:"pointer",letterSpacing:"0.05em",marginBottom:8}}>
+          + LOAD INJURY REPORT / INACTIVES
+        </button>
+      )}
+      {loading && <div style={{fontSize:10,color:C.textMuted,padding:"8px 0"}}>Loading injury report…</div>}
+      {error && (
+        <div style={{fontSize:9,color:"#f87171",background:"rgba(248,113,113,0.06)",border:"1px solid rgba(248,113,113,0.2)",borderRadius:6,padding:"6px 8px",marginBottom:8}}>
+          {error} <button onClick={loadContext} style={{background:"none",border:"none",color:"#f87171",textDecoration:"underline",cursor:"pointer",fontSize:9,padding:0,marginLeft:4}}>retry</button>
+        </div>
+      )}
+
+      {data && (
+        <div style={{marginBottom:10}}>
+          {[{team:awayAbbr,label:game.awayDisplay||game.away},{team:homeAbbr,label:game.homeDisplay||game.home}].map(t=>{
+            const list = data.injuries?.[t.team] || [];
+            return (
+              <div key={t.team} style={{marginBottom:8}}>
+                <div style={{fontSize:9,fontWeight:700,color:C.textDim,marginBottom:4}}>{t.label}</div>
+                {list.length===0 && <div style={{fontSize:9,color:C.textMuted}}>No injury designations reported yet.</div>}
+                {list.map((p,i)=>(
+                  <div key={i} style={{display:"flex",justifyContent:"space-between",fontSize:10,padding:"3px 0",borderTop:i>0?`1px solid ${C.cardBorder}`:"none"}}>
+                    <span style={{color:C.text}}>{p.name} <span style={{color:C.textMuted,fontSize:9}}>{p.position}</span></span>
+                    <span style={{color: p.status==="Out"?"#f87171":p.status==="Doubtful"?"#f59e0b":C.textMuted,fontWeight:600}}>{p.status}</span>
+                  </div>
+                ))}
+              </div>
+            );
+          })}
+          {data.note && <div style={{fontSize:9,color:C.textMuted,fontStyle:"italic",marginTop:4}}>{data.note}</div>}
+        </div>
+      )}
+
+      {!ai && !aiLoading && (
+        <button onClick={generateAnalysis} style={{width:"100%",background:"rgba(245,158,11,0.06)",border:`1px solid ${C.accentBorder}`,borderRadius:7,color:C.accent,fontSize:10,fontWeight:700,padding:"8px 0",cursor:"pointer",letterSpacing:"0.05em"}}>
+          ✦ GENERATE AI ANALYSIS
+        </button>
+      )}
+      {aiLoading && <div style={{fontSize:10,color:C.textMuted,padding:"8px 0"}}>Generating analysis…</div>}
+      {aiError && (
+        <div style={{fontSize:9,color:"#f87171",background:"rgba(248,113,113,0.06)",border:"1px solid rgba(248,113,113,0.2)",borderRadius:6,padding:"6px 8px"}}>
+          {aiError} <button onClick={generateAnalysis} style={{background:"none",border:"none",color:"#f87171",textDecoration:"underline",cursor:"pointer",fontSize:9,padding:0,marginLeft:4}}>retry</button>
+        </div>
+      )}
+      {ai && (
+        <div style={{background:"#0a0f0e",border:`1px solid ${C.accentBorder}`,borderRadius:8,padding:"10px 12px",marginTop:4}}>
+          <div style={{fontSize:9,color:C.accent,fontWeight:700,letterSpacing:"0.07em",marginBottom:6}}>✦ AI ANALYSIS</div>
+          <div style={{fontSize:11,color:C.textDim,lineHeight:1.6,whiteSpace:"pre-wrap"}}>{ai}</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function GameCard({rawGame, onLogBet, spRatings={}, sport}){
   const isLive = rawGame.commenceTime ? new Date(rawGame.commenceTime).getTime() < Date.now() : false;
   const [tab,setTab]=useState(isLive ? "LIVE" : "ML");
   const [myPrices,setMyPrices]=useState({ML:"",SPREAD:"","O/U":""});
   const [showLogForm,setShowLogForm]=useState(false);
   const [logStake,setLogStake]=useState("");
-  const {optimal,bets,sig,tags,mlVacuum,impliedTotals,keyNum,rlm,spFlag}=analyze(rawGame, spRatings);
+  const [slide,setSlide]=useState(1);
+  const [expandedTag,setExpandedTag]=useState(null);
+  const analysis=analyze(rawGame, spRatings);
+  const {optimal,bets,sig,tags,mlVacuum,impliedTotals,keyNum,rlm,spFlag}=analysis;
+  const explain=explainSignals(analysis);
+  const isNFL = sport==="NFL";
   const lh=rawGame.lean===rawGame.home;
   const mlP=lh?rawGame.ml?.home_pin:rawGame.ml?.away_pin;
   const steamDetected=!isLive&&rawGame.lineMove?.hasData&&rawGame.lineMove?.ml<-3;
@@ -997,6 +1222,29 @@ function GameCard({rawGame, onLogBet, spRatings={}}){
         </div>
       </div>
 
+      {/* SLIDE NAV */}
+      <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:10,marginBottom:10}}>
+        <button onClick={()=>setSlide(1)} disabled={slide===1} style={{background:"transparent",border:"none",color:slide===1?C.textMuted:C.text,fontSize:11,cursor:slide===1?"default":"pointer",opacity:slide===1?0.3:1,padding:"2px 6px"}}>‹</button>
+        <span style={{fontSize:9,color:C.textMuted,letterSpacing:"0.1em",fontFamily:"monospace"}}>
+          {slide===1 ? "1/2 · ODDS" : "2/2 · RESEARCH"}
+        </span>
+        <button onClick={()=>setSlide(2)} disabled={slide===2} style={{background:"transparent",border:"none",color:slide===2?C.textMuted:C.text,fontSize:11,cursor:slide===2?"default":"pointer",opacity:slide===2?0.3:1,padding:"2px 6px"}}>›</button>
+      </div>
+
+      {slide===2 && (
+        <div style={{marginBottom:12}}>
+          <SignalExplainPanel explain={explain} expandedTag={expandedTag} onToggle={setExpandedTag}/>
+          {isNFL && (
+            <NFLResearchPanel
+              game={rawGame}
+              analysis={analysis}
+              explain={explain}
+            />
+          )}
+        </div>
+      )}
+
+      {slide===1 && (<>
       <ConsensusBar consensus={rawGame.consensus} lineMove={isLive ? null : rawGame.lineMove} sharpScore={rawGame.consensus?.sharpTotal>0?rawGame.consensus.sharpAgree/rawGame.consensus.sharpTotal:0}/>
       <KeyNumBadge keyNum={keyNum}/>
       <RLMBadge rlm={rlm}/>
@@ -1062,9 +1310,10 @@ function GameCard({rawGame, onLogBet, spRatings={}}){
         {tab!=="LIVE"  &&tab==="SPREAD"&&<SpreadView game={rawGame}                     myPrice={myPrices.SPREAD} onMyPriceChange={v=>setMyPrice("SPREAD",v)}/>}
         {tab!=="LIVE"  &&tab==="O/U"   &&<OUView     game={rawGame} impliedTotals={impliedTotals} myPrice={myPrices["O/U"]} onMyPriceChange={v=>setMyPrice("O/U",v)}/>}
       </div>
+      </>)}
 
       <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
-        {Object.entries(tags).map(([k,v])=><Tag key={k} label={k} active={v} color={k==="STEAM"?C.steam:C.positive}/>)}
+        {Object.entries(tags).map(([k,v])=><Tag key={k} label={k} active={v} color={k==="STEAM"?C.steam:C.positive} onClick={()=>{setSlide(2);setExpandedTag(k);}}/>)}
       </div>
     </div>
   );
@@ -1218,7 +1467,7 @@ export default function App(){
         )}
         {!isLoading&&!err&&sorted.length===0&&cur.length>0&&<div style={{textAlign:"center",padding:"40px 0",color:C.textMuted,fontSize:11}}>No games at Signal {sigFilter}+ — try lowering the filter</div>}
         {!isLoading&&!err&&cur.length===0&&upd&&<div style={{textAlign:"center",padding:"40px 0",color:C.textMuted,fontSize:11}}>No {sport} games today</div>}
-        {!isLoading&&sorted.map((g,i)=>{try{return<GameCard key={i} rawGame={g} onLogBet={handleLogBet} spRatings={spRatings}/>;}catch{return null;}})}
+        {!isLoading&&sorted.map((g,i)=>{try{return<GameCard key={i} rawGame={g} onLogBet={handleLogBet} spRatings={spRatings} sport={sport}/>;}catch{return null;}})}
       </div>
       {betLogOpen&&<BetLogPanel log={betLog} onDelete={handleDeleteBet} onClose={()=>setBetLogOpen(false)}/>}
 
