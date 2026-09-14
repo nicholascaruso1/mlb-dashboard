@@ -8,6 +8,17 @@
 // in-game role changes. True snap-share trend (e.g. "RB2 has taken 40%+ of snaps
 // over last 3 games") would need a historical box-score data source — flagged as a
 // follow-up in the backlog, not built here.
+//
+// PERFORMANCE NOTE: an earlier version resolved the NFL week number by fetching
+// ESPN's plain /scoreboard endpoint to read its season calendar, then fetching the
+// target week's scoreboard, then (usually) falling back to the full game /summary
+// endpoint — three sequential multi-hundred-KB+ ESPN payloads in one request,
+// which blew past Netlify's function timeout and surfaced as a bare 502 with no
+// JSON body (so the frontend's error handling never even saw a message). Fixed by
+// hardcoding the week-1/week-2 boundary (confirmed against ESPN's own 2026 season
+// calendar) so week resolution needs zero network calls, and by adding a
+// per-fetch timeout via AbortController so a slow ESPN response fails fast with a
+// real error message instead of a silent platform-level 502.
 
 const TEAM_IDS = {
   ARI:22, ATL:1, BAL:33, BUF:2, CAR:29, CHI:3, CIN:4, CLE:5, DAL:6, DEN:7,
@@ -16,50 +27,35 @@ const TEAM_IDS = {
   TEN:10, WSH:28,
 };
 
-async function fetchJson(url) {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`ESPN request failed (${res.status}) for ${url}`);
-  return res.json();
-}
+// 2026 season boundaries, sourced directly from ESPN's own scoreboard calendar
+// (leagues[0].calendar) at build time. Week 1 runs long (covers the Thu-Mon
+// season-opening slate plus any late-Monday games); every week after that is a
+// clean 7-day block starting from Week 2's start. Re-verify against ESPN's
+// calendar if this ever drifts (rare — only on schedule flex/format changes).
+const WEEK2_START = Date.UTC(2026, 8, 16, 7, 0, 0); // 2026-09-16T07:00Z
+const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+const SEASON_START = Date.UTC(2026, 7, 6, 7, 0, 0); // 2026-08-06T07:00Z (incl. preseason)
 
-// Resolve the correct NFL week number for a given kickoff time using ESPN's own
-// season calendar — every scoreboard response (regardless of query params)
-// includes leagues[0].calendar, an array of {value, startDate, endDate} entries
-// for the full season. This avoids the ?dates=YYYYMMDD param, which is unreliable
-// for weeks other than whichever one ESPN currently considers "this week."
-async function resolveWeekNumber(commenceTime) {
-  const sb = await fetchJson("https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard");
-  const calendar = sb?.leagues?.[0]?.calendar || [];
-  // Regular season block only (calendar also has Preseason/Postseason/Off Season blocks)
-  const regSeason = calendar.find(block => block.label === "Regular Season");
-  const entries = regSeason?.entries || [];
+function resolveWeekNumber(commenceTime) {
   const target = commenceTime ? new Date(commenceTime).getTime() : Date.now();
-  const match = entries.find(e => {
-    const start = new Date(e.startDate).getTime();
-    const end = new Date(e.endDate).getTime();
-    return target >= start && target <= end;
-  });
-  return match ? Number(match.value) : null;
+  if (isNaN(target) || target < SEASON_START) return null;
+  if (target < WEEK2_START) return 1;
+  return 2 + Math.floor((target - WEEK2_START) / WEEK_MS);
 }
 
-function extractInjuriesFromEvent(event, awayId, homeId) {
-  // ESPN scoreboard/summary events sometimes carry injuries at event.competitions[0].injuries,
-  // each entry shaped like { team: { id }, injuries: [ { athlete, status, details } ] }.
-  const comp = event?.competitions?.[0];
-  const blocks = comp?.injuries || event?.injuries || [];
-  const out = {};
-  for (const block of blocks) {
-    const teamId = String(block?.team?.id || "");
-    const abbr = teamId === String(awayId) ? "AWAY" : teamId === String(homeId) ? "HOME" : null;
-    if (!abbr) continue;
-    out[abbr] = (block.injuries || []).map(inj => ({
-      name: inj?.athlete?.displayName || inj?.athlete?.shortName || "Unknown",
-      position: inj?.athlete?.position?.abbreviation || inj?.position?.abbreviation || "",
-      status: inj?.status || inj?.type?.description || "Unknown",
-      detail: inj?.details?.detail || inj?.shortComment || "",
-    }));
+async function fetchJson(url, timeoutMs = 7000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, { signal: controller.signal });
+    if (!res.ok) throw new Error(`ESPN request failed (${res.status})`);
+    return await res.json();
+  } catch (e) {
+    if (e.name === "AbortError") throw new Error("ESPN request timed out");
+    throw e;
+  } finally {
+    clearTimeout(timer);
   }
-  return out;
 }
 
 exports.handler = async (event) => {
@@ -74,12 +70,12 @@ exports.handler = async (event) => {
   }
 
   try {
-    const weekNumber = await resolveWeekNumber(commence);
+    const weekNumber = resolveWeekNumber(commence);
     if (!weekNumber) {
       return {
         statusCode: 200,
         headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
-        body: JSON.stringify({ injuries: {}, note: "Couldn't resolve a regular-season week for this kickoff time yet (preseason or off-season) — try again once the schedule posts." }),
+        body: JSON.stringify({ injuries: {}, note: "Couldn't resolve a regular-season week for this kickoff time (preseason or off-season)." }),
       };
     }
 
@@ -97,27 +93,31 @@ exports.handler = async (event) => {
       };
     }
 
-    let injuries = extractInjuriesFromEvent(matchedEvent, awayId, homeId);
-
-    // Fallback: fetch the full summary endpoint, which more reliably includes injuries
-    if (Object.keys(injuries).length === 0 && matchedEvent.id) {
-      try {
-        const summary = await fetchJson(`https://site.api.espn.com/apis/site/v2/sports/football/nfl/summary?event=${matchedEvent.id}`);
-        const blocks = summary?.injuries || [];
-        const out = {};
-        for (const block of blocks) {
-          const teamId = String(block?.team?.id || "");
-          const abbr = teamId === String(awayId) ? "AWAY" : teamId === String(homeId) ? "HOME" : null;
-          if (!abbr) continue;
-          out[abbr] = (block.injuries || []).map(inj => ({
-            name: inj?.athlete?.displayName || "Unknown",
-            position: inj?.athlete?.position?.abbreviation || "",
-            status: inj?.status || "Unknown",
-            detail: inj?.details?.detail || "",
-          }));
-        }
-        injuries = out;
-      } catch { /* keep empty injuries, note below explains */ }
+    // Go straight to the summary endpoint — ESPN's scoreboard events never carry
+    // inline injuries in practice, so checking there first was pure wasted latency.
+    let injuries = {};
+    try {
+      const summary = await fetchJson(`https://site.api.espn.com/apis/site/v2/sports/football/nfl/summary?event=${matchedEvent.id}`);
+      const blocks = summary?.injuries || [];
+      for (const block of blocks) {
+        const teamId = String(block?.team?.id || "");
+        const abbr = teamId === String(awayId) ? "AWAY" : teamId === String(homeId) ? "HOME" : null;
+        if (!abbr) continue;
+        injuries[abbr] = (block.injuries || []).map(inj => ({
+          name: inj?.athlete?.displayName || "Unknown",
+          position: inj?.athlete?.position?.abbreviation || "",
+          status: inj?.status || "Unknown",
+          detail: inj?.details?.detail || "",
+        }));
+      }
+    } catch (e) {
+      // Surface the real reason instead of silently returning empty — a timeout
+      // here is meaningfully different from "no report published yet."
+      return {
+        statusCode: 200,
+        headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
+        body: JSON.stringify({ injuries: {}, note: `Found the game, but the ESPN game-summary lookup failed (${e.message}). Try again in a moment.` }),
+      };
     }
 
     // Re-key AWAY/HOME onto the actual abbreviations the frontend asked with
@@ -139,6 +139,10 @@ exports.handler = async (event) => {
       }),
     };
   } catch (e) {
-    return { statusCode: 502, body: JSON.stringify({ error: e.message }) };
+    return {
+      statusCode: 200,
+      headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
+      body: JSON.stringify({ injuries: {}, note: `Lookup failed: ${e.message}` }),
+    };
   }
 };
