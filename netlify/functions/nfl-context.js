@@ -22,8 +22,24 @@ async function fetchJson(url) {
   return res.json();
 }
 
-function toYYYYMMDD(d) {
-  return d.toISOString().slice(0, 10).replace(/-/g, "");
+// Resolve the correct NFL week number for a given kickoff time using ESPN's own
+// season calendar — every scoreboard response (regardless of query params)
+// includes leagues[0].calendar, an array of {value, startDate, endDate} entries
+// for the full season. This avoids the ?dates=YYYYMMDD param, which is unreliable
+// for weeks other than whichever one ESPN currently considers "this week."
+async function resolveWeekNumber(commenceTime) {
+  const sb = await fetchJson("https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard");
+  const calendar = sb?.leagues?.[0]?.calendar || [];
+  // Regular season block only (calendar also has Preseason/Postseason/Off Season blocks)
+  const regSeason = calendar.find(block => block.label === "Regular Season");
+  const entries = regSeason?.entries || [];
+  const target = commenceTime ? new Date(commenceTime).getTime() : Date.now();
+  const match = entries.find(e => {
+    const start = new Date(e.startDate).getTime();
+    const end = new Date(e.endDate).getTime();
+    return target >= start && target <= end;
+  });
+  return match ? Number(match.value) : null;
 }
 
 function extractInjuriesFromEvent(event, awayId, homeId) {
@@ -58,30 +74,26 @@ exports.handler = async (event) => {
   }
 
   try {
-    // Search a small date window around kickoff (commence_time may be UTC and
-    // shift a calendar day from ESPN's local scoreboard date).
-    const baseDate = commence ? new Date(commence) : new Date();
-    const candidates = [-1, 0, 1].map(offset => {
-      const d = new Date(baseDate);
-      d.setUTCDate(d.getUTCDate() + offset);
-      return toYYYYMMDD(d);
-    });
-
-    let matchedEvent = null;
-    for (const dateStr of candidates) {
-      const sb = await fetchJson(`https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard?dates=${dateStr}`);
-      const found = (sb.events || []).find(ev => {
-        const ids = (ev?.competitions?.[0]?.competitors || []).map(c => String(c?.team?.id));
-        return ids.includes(String(awayId)) && ids.includes(String(homeId));
-      });
-      if (found) { matchedEvent = found; break; }
+    const weekNumber = await resolveWeekNumber(commence);
+    if (!weekNumber) {
+      return {
+        statusCode: 200,
+        headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
+        body: JSON.stringify({ injuries: {}, note: "Couldn't resolve a regular-season week for this kickoff time yet (preseason or off-season) — try again once the schedule posts." }),
+      };
     }
+
+    const sb = await fetchJson(`https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard?seasontype=2&week=${weekNumber}`);
+    const matchedEvent = (sb.events || []).find(ev => {
+      const ids = (ev?.competitions?.[0]?.competitors || []).map(c => String(c?.team?.id));
+      return ids.includes(String(awayId)) && ids.includes(String(homeId));
+    });
 
     if (!matchedEvent) {
       return {
         statusCode: 200,
         headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
-        body: JSON.stringify({ injuries: {}, note: "No matching ESPN event found yet for this matchup — try again closer to game week." }),
+        body: JSON.stringify({ injuries: {}, note: `No matching ESPN event found in Week ${weekNumber} for this matchup.` }),
       };
     }
 
