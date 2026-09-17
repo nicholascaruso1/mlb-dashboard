@@ -13,6 +13,11 @@ const SPORTS = [
   { key: "SOCCER", label: "Soccer", emoji: "⚽", oddsKey: "soccer_usa_mls" },
 ];
 
+// NOTE: netlify/functions/nfl-context.js independently maintains its own
+// TEAM_IDS map keyed by these same NFL abbreviations (to resolve ESPN's numeric
+// team IDs). There's no shared source between the two files — if you rename or
+// add an NFL abbreviation here, check that file too, or the injury-report lookup
+// will silently start pulling the wrong team's data (or none) for that team.
 const TEAM_ABBR = {
   "Arizona Diamondbacks":"ARI","Atlanta Braves":"ATL","Baltimore Orioles":"BAL","Boston Red Sox":"BOS","Chicago Cubs":"CHC","Chicago White Sox":"CWS","Cincinnati Reds":"CIN","Cleveland Guardians":"CLE","Colorado Rockies":"COL","Detroit Tigers":"DET","Houston Astros":"HOU","Kansas City Royals":"KC","Los Angeles Angels":"LAA","Los Angeles Dodgers":"LAD","Miami Marlins":"MIA","Milwaukee Brewers":"MIL","Minnesota Twins":"MIN","New York Mets":"NYM","New York Yankees":"NYY","Oakland Athletics":"OAK","Philadelphia Phillies":"PHI","Pittsburgh Pirates":"PIT","San Diego Padres":"SD","San Francisco Giants":"SF","Seattle Mariners":"SEA","St. Louis Cardinals":"STL","Tampa Bay Rays":"TB","Texas Rangers":"TEX","Toronto Blue Jays":"TOR","Washington Nationals":"WSH",
   "Arizona Cardinals":"ARI","Atlanta Falcons":"ATL","Baltimore Ravens":"BAL","Buffalo Bills":"BUF","Carolina Panthers":"CAR","Chicago Bears":"CHI","Cincinnati Bengals":"CIN","Cleveland Browns":"CLE","Dallas Cowboys":"DAL","Denver Broncos":"DEN","Detroit Lions":"DET","Green Bay Packers":"GB","Houston Texans":"HOU","Indianapolis Colts":"IND","Jacksonville Jaguars":"JAX","Kansas City Chiefs":"KC","Las Vegas Raiders":"LV","Los Angeles Chargers":"LAC","Los Angeles Rams":"LAR","Miami Dolphins":"MIA","Minnesota Vikings":"MIN","New England Patriots":"NE","New Orleans Saints":"NO","New York Giants":"NYG","New York Jets":"NYJ","Philadelphia Eagles":"PHI","Pittsburgh Steelers":"PIT","San Francisco 49ers":"SF","Seattle Seahawks":"SEA","Tampa Bay Buccaneers":"TB","Tennessee Titans":"TEN","Washington Commanders":"WSH",
@@ -569,7 +574,7 @@ function SignalExplainPanel({explain, expandedTag, onToggle}){
   );
 }
 
-function ConsensusBar({consensus, lineMove, sharpScore}) {
+function ConsensusBar({consensus, lineMove}) {
   if (!consensus||consensus.total===0) return null;
   const pct=Math.round((consensus.agree/consensus.total)*100);
   const allSharpAgree=consensus.sharpTotal>0&&consensus.sharpAgree===consensus.sharpTotal;
@@ -1255,7 +1260,7 @@ function GameCard({rawGame, onLogBet, spRatings={}, sport}){
       )}
 
       {slide===1 && (<>
-      <ConsensusBar consensus={rawGame.consensus} lineMove={isLive ? null : rawGame.lineMove} sharpScore={rawGame.consensus?.sharpTotal>0?rawGame.consensus.sharpAgree/rawGame.consensus.sharpTotal:0}/>
+      <ConsensusBar consensus={rawGame.consensus} lineMove={isLive ? null : rawGame.lineMove}/>
       <KeyNumBadge keyNum={keyNum}/>
       <RLMBadge rlm={rlm}/>
       <SPBadge spFlag={spFlag} optimalType={optimal?.type}/>

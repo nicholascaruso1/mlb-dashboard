@@ -20,6 +20,12 @@
 // per-fetch timeout via AbortController so a slow ESPN response fails fast with a
 // real error message instead of a silent platform-level 502.
 
+// NOTE: these keys must exactly match the NFL abbreviations that src/App.jsx's
+// TEAM_ABBR map / abbr() produce, since the frontend calls this endpoint with
+// abbr(game.away)/abbr(game.home). No shared source between the two files — if
+// App.jsx's NFL abbreviations ever change, this map needs the same change, or
+// lookups here silently fail (400 "Unrecognized team abbreviation") or worse,
+// silently match the wrong team if an abbreviation ends up reused elsewhere.
 const TEAM_IDS = {
   ARI:22, ATL:1, BAL:33, BUF:2, CAR:29, CHI:3, CIN:4, CLE:5, DAL:6, DEN:7,
   DET:8, GB:9, HOU:34, IND:11, JAX:30, KC:12, LV:13, LAC:24, LAR:14, MIA:15,
