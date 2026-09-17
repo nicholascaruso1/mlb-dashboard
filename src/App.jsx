@@ -1,6 +1,5 @@
 import { useState, useEffect } from "react";
 
-const ODDS_API_KEY = "e95f810e37a0140a9a34d5ee986ef8c8";
 const SHARP_BOOKS = ["pinnacle", "bookmaker", "lowvig"];
 const ALL_BOOKS   = ["pinnacle", "draftkings", "fanduel", "betmgm", "caesars", "bookmaker", "lowvig", "betonlineag"];
 
@@ -228,16 +227,20 @@ async function fetchLiveOdds(sport) {
 
   const books = ALL_BOOKS.join(",");
   const isCollege = sportObj.oddsKey.includes("ncaa");
-  let dateParams = "";
+  const params = new URLSearchParams({
+    sportKey: sportObj.oddsKey, regions: "us",
+    markets: "h2h,spreads,totals", oddsFormat: "american",
+    bookmakers: books,
+  });
   if (isCollege) {
     const from = new Date(); from.setDate(from.getDate()-2); from.setHours(0,0,0,0);
     const to   = new Date(); to.setDate(to.getDate()+5);    to.setHours(23,59,59,999);
-    dateParams = `&commenceTimeFrom=${from.toISOString().split('.')[0]}Z&commenceTimeTo=${to.toISOString().split('.')[0]}Z`;
+    params.set("commenceTimeFrom", `${from.toISOString().split('.')[0]}Z`);
+    params.set("commenceTimeTo", `${to.toISOString().split('.')[0]}Z`);
   }
-  const url = `/odds-api/v4/sports/${sportObj.oddsKey}/odds/?apiKey=${ODDS_API_KEY}&regions=us&markets=h2h,spreads,totals&oddsFormat=american&bookmakers=${books}${dateParams}`;
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`Odds API error ${res.status}`);
+  const res = await fetch(`/.netlify/functions/odds?${params.toString()}`);
   const data = await res.json();
+  if (!res.ok) throw new Error(data?.error || `Odds API error ${res.status}`);
   const requestsRemaining = parseInt(res.headers.get("x-requests-remaining"))||null;
 
   const games = data.map(game => {

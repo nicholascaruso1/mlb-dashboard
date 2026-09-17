@@ -5,6 +5,41 @@
 // a Netlify environment variable — this calls the real Anthropic API and will use
 // your own API credits per request, which is why this is a manual button in the
 // UI rather than something that fires automatically per card.
+//
+// RATE LIMITING: this function is publicly reachable (it's a static-site Netlify
+// function with no auth layer) and spends real Anthropic API credits per call, so
+// it needs its own guard rather than relying on the UI button to gate usage — a
+// caller can hit the endpoint directly. We cap requests per source IP using
+// Netlify Blobs (persists across invocations, no extra infra to run).
+
+const { getStore } = require("@netlify/blobs");
+
+const RATE_LIMIT_MAX = 20;             // requests
+const RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000; // per rolling hour, per IP
+
+async function checkRateLimit(ip) {
+  const store = getStore("rate-limits");
+  const blobKey = `ai-analysis:${ip}`;
+  const now = Date.now();
+  let record = null;
+  try {
+    record = await store.get(blobKey, { type: "json" });
+  } catch {
+    record = null; // treat any read failure as "no record yet" rather than blocking
+  }
+  if (!record || now - record.windowStart > RATE_LIMIT_WINDOW_MS) {
+    record = { windowStart: now, count: 0 };
+  }
+  record.count += 1;
+  try {
+    await store.setJSON(blobKey, record);
+  } catch {
+    // If Blobs is unavailable for some reason, fail open rather than 500ing
+    // every request — losing the rate limit is safer than losing the feature.
+    return true;
+  }
+  return record.count <= RATE_LIMIT_MAX;
+}
 
 exports.handler = async (event) => {
   if (event.httpMethod !== "POST") {
@@ -13,6 +48,16 @@ exports.handler = async (event) => {
   const key = process.env.ANTHROPIC_API_KEY;
   if (!key) {
     return { statusCode: 500, body: JSON.stringify({ error: "ANTHROPIC_API_KEY not configured in Netlify environment variables" }) };
+  }
+
+  const clientIp = event.headers["x-nf-client-connection-ip"] || event.headers["client-ip"] || "unknown";
+  const allowed = await checkRateLimit(clientIp);
+  if (!allowed) {
+    return {
+      statusCode: 429,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ error: `Rate limit exceeded (${RATE_LIMIT_MAX} analyses/hour). Try again later.` }),
+    };
   }
 
   let payload;
