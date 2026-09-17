@@ -197,8 +197,15 @@ function cleanOldLines() {
   } catch {}
 }
 
-// ─── Odds Cache (15-min TTL) ──────────────────────────────────────────────────
-const CACHE_TTL = 15 * 60 * 1000; // 15 minutes in ms
+// ─── Odds Cache ───────────────────────────────────────────────────────────────
+// TTL controls both manual-cache-hit behavior AND the auto-refresh cadence below.
+// The Odds API bills per request as (markets requested × regions requested) —
+// this app requests 3 markets (h2h, spreads, totals) × 1 region (us) = 3 credits
+// per live fetch, so a "500 requests/month" plan is really ~166 live refreshes a
+// month, shared across every sport you check. Tune this constant if you want a
+// different balance between freshness and quota; 1 hour keeps a single
+// continuously-open sport tab well under a day's worth of budget.
+const CACHE_TTL = 60 * 60 * 1000; // 1 hour in ms
 
 function getCached(sport) {
   try {
@@ -1342,14 +1349,18 @@ export default function App(){
   },[]);
 
   function handleLogBet(bet) {
-    const updated = [...betLog, bet];
-    setBetLog(updated);
-    saveBetLog(updated);
+    setBetLog(prev => {
+      const updated = [...prev, bet];
+      saveBetLog(updated);
+      return updated;
+    });
   }
   function handleDeleteBet(id) {
-    const updated = betLog.filter(b=>b.id!==id);
-    setBetLog(updated);
-    saveBetLog(updated);
+    setBetLog(prev => {
+      const updated = prev.filter(b=>b.id!==id);
+      saveBetLog(updated);
+      return updated;
+    });
   }
 
   async function load(s, forceRefresh=false){
@@ -1378,15 +1389,15 @@ export default function App(){
   useEffect(()=>{load(sport);},[sport]);
 
   const cur=games[sport]||[],isLoading=loading[sport],err=errors[sport],upd=updated[sport];
-  const filtered=cur.filter(g=>{try{return analyze(g,spRatings).sig>=sigFilter;}catch{return false;}});
+  const filtered=cur.filter(g=>{try{return analyze(g,spRatings).sig>=sigFilter;}catch(e){console.error(`analyze() failed during filter for ${g.gameKey}:`,e);return false;}});
   const sorted=[...filtered].sort((a,b)=>{
     let av,bv;
     if(sortBy==="time"){
       av=a.commenceTime?new Date(a.commenceTime).getTime():0;
       bv=b.commenceTime?new Date(b.commenceTime).getTime():0;
     }else{
-      try{av=analyze(a,spRatings).optimal.edge;}catch{av=-Infinity;}
-      try{bv=analyze(b,spRatings).optimal.edge;}catch{bv=-Infinity;}
+      try{av=analyze(a,spRatings).optimal.edge;}catch(e){console.error(`analyze() failed during sort for ${a.gameKey}:`,e);av=-Infinity;}
+      try{bv=analyze(b,spRatings).optimal.edge;}catch(e){console.error(`analyze() failed during sort for ${b.gameKey}:`,e);bv=-Infinity;}
     }
     return sortDir==="asc"?av-bv:bv-av;
   });
@@ -1396,8 +1407,8 @@ export default function App(){
       <div style={{background:C.bg,borderBottom:`1px solid ${C.cardBorder}`,padding:"12px 14px",position:"sticky",top:0,zIndex:10}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
           <span style={{fontSize:12,color:C.text,fontWeight:800,letterSpacing:"0.12em"}}>SIGNALS</span>
-          <button onClick={()=>load(sport,true)} disabled={isLoading} style={{background:"transparent",border:`1px solid ${C.cardBorder}`,borderRadius:20,color:C.textDim,fontSize:10,fontWeight:600,padding:"4px 12px",cursor:"pointer"}}>
-            {isLoading?"⟳ LOADING...":"⟳ REFRESH"}
+          <button onClick={()=>load(sport,true)} disabled={isLoading} title="Bypasses the cache — costs 3 API credits (3 markets × 1 region)" style={{background:"transparent",border:`1px solid ${C.cardBorder}`,borderRadius:20,color:C.textDim,fontSize:10,fontWeight:600,padding:"4px 12px",cursor:"pointer"}}>
+            {isLoading?"⟳ LOADING...":"⟳ FORCE (uses 3 credits)"}
           </button>
           <button onClick={()=>setBetLogOpen(true)} style={{background:betLog.length>0?"rgba(110,231,183,0.08)":"transparent",border:`1px solid ${betLog.length>0?C.positiveBorder:C.cardBorder}`,borderRadius:20,color:betLog.length>0?C.positive:C.textMuted,fontSize:10,fontWeight:600,padding:"4px 12px",cursor:"pointer"}}>
             BETS {betLog.length>0?`(${betLog.length})`:""}
@@ -1417,7 +1428,7 @@ export default function App(){
           {upd
             ? <span style={{fontSize:9,color:C.textMuted}}>
                 {upd.cached
-                  ? <span>⚡ Cached {cacheAgeLabel(upd.ts)} · <span style={{color:"#f59e0b"}}>REFRESH for live</span></span>
+                  ? <span>⚡ Cached {cacheAgeLabel(upd.ts)} · auto-serves for 1hr · <span style={{color:"#f59e0b"}}>FORCE for live</span></span>
                   : `Updated ${upd.time} · Pinnacle + 7 books`
                 }
               </span>
@@ -1470,7 +1481,7 @@ export default function App(){
         )}
         {!isLoading&&!err&&sorted.length===0&&cur.length>0&&<div style={{textAlign:"center",padding:"40px 0",color:C.textMuted,fontSize:11}}>No games at Signal {sigFilter}+ — try lowering the filter</div>}
         {!isLoading&&!err&&cur.length===0&&upd&&<div style={{textAlign:"center",padding:"40px 0",color:C.textMuted,fontSize:11}}>No {sport} games today</div>}
-        {!isLoading&&sorted.map((g,i)=>{try{return<GameCard key={i} rawGame={g} onLogBet={handleLogBet} spRatings={spRatings} sport={sport}/>;}catch{return null;}})}
+        {!isLoading&&sorted.map((g)=>{try{return<GameCard key={g.gameKey} rawGame={g} onLogBet={handleLogBet} spRatings={spRatings} sport={sport}/>;}catch(e){console.error(`GameCard render failed for ${g.gameKey}:`,e);return null;}})}
       </div>
       {betLogOpen&&<BetLogPanel log={betLog} onDelete={handleDeleteBet} onClose={()=>setBetLogOpen(false)}/>}
 
