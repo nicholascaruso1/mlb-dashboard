@@ -856,6 +856,7 @@ function BookPriceInput({pinPrice, dkPrice, label, value, onChange}) {
           placeholder="e.g. +100 or -108"
           value={value}
           onChange={e=>onChange(e.target.value)}
+          className="app-focusable"
           style={{
             flex:1, background:"#0c1210", border:`1px solid ${valid?C.positiveBorder:C.cardBorder}`,
             borderRadius:6, color:C.text, fontSize:13, fontWeight:700,
@@ -1283,6 +1284,7 @@ function GameCard({rawGame, onLogBet, spRatings={}, sport}){
             <div style={{flex:1}}>
               <div style={{fontSize:8,color:C.textMuted,marginBottom:3}}>STAKE ($)</div>
               <input type="number" placeholder="e.g. 20" value={logStake} onChange={e=>setLogStake(e.target.value)}
+                className="app-focusable"
                 style={{width:"100%",background:"#0c1210",border:`1px solid ${C.cardBorder}`,borderRadius:6,color:C.text,fontSize:12,fontWeight:700,padding:"5px 8px",outline:"none",boxSizing:"border-box"}}/>
             </div>
           </div>
@@ -1450,7 +1452,7 @@ export default function App(){
 
         <div style={{display:"flex",gap:6,alignItems:"center"}}>
           <span style={{fontSize:9,color:C.textMuted,letterSpacing:"0.06em"}}>SORT</span>
-          <select value={sortBy} onChange={e=>setSortBy(e.target.value)} style={{background:"#0c1210",border:`1px solid ${C.cardBorder}`,borderRadius:6,color:C.textDim,fontSize:10,padding:"3px 8px",cursor:"pointer",outline:"none"}}>
+          <select value={sortBy} onChange={e=>setSortBy(e.target.value)} className="app-focusable" style={{background:"#0c1210",border:`1px solid ${C.cardBorder}`,borderRadius:6,color:C.textDim,fontSize:10,padding:"3px 8px",cursor:"pointer",outline:"none"}}>
             <option value="edge">Edge vs Pinnacle</option>
             <option value="time">Start Time</option>
           </select>
@@ -1477,16 +1479,22 @@ export default function App(){
             <style>{`@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}`}</style>
           </div>
         )}
-        {err&&!isLoading&&(
+        {err&&!isLoading&&cur.length===0&&(
           <div style={{margin:16,background:"rgba(239,68,68,0.06)",border:"1px solid rgba(239,68,68,0.2)",borderRadius:10,padding:16}}>
             <div style={{fontSize:11,color:"#ef4444",fontWeight:700,marginBottom:6}}>⚠ ERROR</div>
             <div style={{fontSize:10,color:C.textDim,marginBottom:12}}>{err}</div>
             <button onClick={()=>load(sport)} style={{background:"transparent",border:`1px solid ${C.cardBorder}`,color:C.textDim,fontSize:10,fontWeight:600,borderRadius:6,padding:"6px 16px",cursor:"pointer"}}>RETRY</button>
           </div>
         )}
-        {!isLoading&&!err&&sorted.length===0&&cur.length>0&&<div style={{textAlign:"center",padding:"40px 0",color:C.textMuted,fontSize:11}}>No games at Signal {sigFilter}+ — try lowering the filter</div>}
+        {err&&!isLoading&&cur.length>0&&(
+          <div style={{margin:"0 6px 10px",background:"rgba(234,179,8,0.06)",border:"1px solid rgba(234,179,8,0.2)",borderRadius:8,padding:"8px 12px",display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,flexWrap:"wrap"}}>
+            <div style={{fontSize:10,color:"#eab308"}}>Showing cached data{upd?.time?` from ${upd.time}`:""} — live refresh failed ({err})</div>
+            <button onClick={()=>load(sport,true)} style={{background:"transparent",border:"1px solid rgba(234,179,8,0.3)",color:"#eab308",fontSize:9,fontWeight:600,borderRadius:6,padding:"4px 10px",cursor:"pointer",whiteSpace:"nowrap"}}>RETRY</button>
+          </div>
+        )}
+        {!isLoading&&(!err||cur.length>0)&&sorted.length===0&&cur.length>0&&<div style={{textAlign:"center",padding:"40px 0",color:C.textMuted,fontSize:11}}>No games at Signal {sigFilter}+ — try lowering the filter</div>}
         {!isLoading&&!err&&cur.length===0&&upd&&<div style={{textAlign:"center",padding:"40px 0",color:C.textMuted,fontSize:11}}>No {sport} games today</div>}
-        {!isLoading&&sorted.map((g)=>{try{return<GameCard key={g.gameKey} rawGame={g} onLogBet={handleLogBet} spRatings={spRatings} sport={sport}/>;}catch(e){console.error(`GameCard render failed for ${g.gameKey}:`,e);return null;}})}
+        {!isLoading&&(!err||cur.length>0)&&sorted.map((g)=>{try{return<GameCard key={g.gameKey} rawGame={g} onLogBet={handleLogBet} spRatings={spRatings} sport={sport}/>;}catch(e){console.error(`GameCard render failed for ${g.gameKey}:`,e);return null;}})}
       </div>
       {betLogOpen&&<BetLogPanel log={betLog} onDelete={handleDeleteBet} onClose={()=>setBetLogOpen(false)}/>}
 

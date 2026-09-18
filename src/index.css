@@ -109,3 +109,10 @@ code {
   padding: 4px 8px;
   background: var(--code-bg);
 }
+
+/* Visible focus state for the app's form controls (inline-styled elsewhere) */
+.app-focusable:focus {
+  outline: none;
+  border-color: #f59e0b !important;
+  box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.35);
+}
