@@ -443,8 +443,16 @@ async function fetchLiveOdds(sport) {
     const leanIsHome = lean===home;
 
     // ── Multi-book consensus ──
+    // Pinnacle is the anchor this whole app is built around — the lean side is
+    // LITERALLY defined by Pinnacle's own price (see `lean` above) — so it will
+    // always "agree" with itself by construction. Counting it as one of the
+    // corroborating votes here was circular: it inflated both the all-books and
+    // sharp-books agreement fractions with a guaranteed match that says nothing
+    // about independent confirmation. Excluded from this loop entirely; the
+    // point of this metric is "how many OTHER books agree with Pinnacle."
     let totalBooks=0, agreeBooks=0, sharpAgree=0, sharpTotal=0;
     game.bookmakers?.forEach(bk => {
+      if (bk.key === "pinnacle") return;
       const bkH2H = getM(bk,"h2h");
       if (!bkH2H) return;
       const leanOdds = leanIsHome ? getO(bkH2H,game.home_team) : getO(bkH2H,game.away_team);
@@ -1015,7 +1023,7 @@ function SideCard({label,pin,dk,oppPin,isLean}){
   );
 }
 
-function MLView({game, mlVacuum, myPrice, onMyPriceChange}){
+function MLView({game, mlVacuum, myPrice, myPriceTs, onMyPriceChange}){
   const lh=game.lean===game.home;const ml=game.ml||{};
   const leanPin = lh?ml.home_pin:ml.away_pin;
   const leanDk  = lh?ml.home_dk:ml.away_dk;
@@ -1055,11 +1063,11 @@ function MLView({game, mlVacuum, myPrice, onMyPriceChange}){
           <div style={{fontFamily:"monospace",fontSize:16,fontWeight:700,color:C.text,marginTop:8}}>{(devigProb(leanPin, lh?ml.away_pin:ml.home_pin)*100).toFixed(1)}%</div>
         </div>
       </div>
-      <BookPriceInput pinPrice={leanPin} dkPrice={leanDk} oppPin={lh?ml.away_pin:ml.home_pin} label={`${lh?game.homeDisplay||game.home:game.awayDisplay||game.away} ML`} value={myPrice} onChange={onMyPriceChange}/>
+      <BookPriceInput pinPrice={leanPin} dkPrice={leanDk} oppPin={lh?ml.away_pin:ml.home_pin} label={`${lh?game.homeDisplay||game.home:game.awayDisplay||game.away} ML`} value={myPrice} timestamp={myPriceTs} onChange={onMyPriceChange}/>
     </div>
   );
 }
-function SpreadView({game, myPrice, onMyPriceChange}){
+function SpreadView({game, myPrice, myPriceTs, onMyPriceChange}){
   const lh=game.lean===game.home;const sp=game.spread||{};
   const leanPin = lh?sp.home_pin:sp.away_pin;
   const leanDk  = lh?sp.home_dk:sp.away_dk;
@@ -1072,7 +1080,7 @@ function SpreadView({game, myPrice, onMyPriceChange}){
       <SideCard label={`${awayDisp} ${fmt(sp.away_line)}`} pin={sp.away_pin} dk={sp.away_dk} oppPin={sp.home_pin} isLean={!lh}/>
       <SideCard label={`${homeDisp} ${fmt(sp.home_line)}`} pin={sp.home_pin} dk={sp.home_dk} oppPin={sp.away_pin} isLean={lh}/>
     </div>
-    <BookPriceInput pinPrice={leanPin} dkPrice={leanDk} oppPin={lh?sp.away_pin:sp.home_pin} label={`${leanDisp} ${leanLine>0?"+":""}${leanLine}`} value={myPrice} onChange={onMyPriceChange}/>
+    <BookPriceInput pinPrice={leanPin} dkPrice={leanDk} oppPin={lh?sp.away_pin:sp.home_pin} label={`${leanDisp} ${leanLine>0?"+":""}${leanLine}`} value={myPrice} timestamp={myPriceTs} onChange={onMyPriceChange}/>
   </div>);
 }
 // ─── Implied Totals Row ───────────────────────────────────────────────────────
@@ -1104,7 +1112,7 @@ function ImpliedTotalsRow({impliedTotals, leanTeam, dogTeam}) {
 }
 
 // ─── Your Book Price Input ────────────────────────────────────────────────────
-function BookPriceInput({pinPrice, dkPrice, oppPin, label, value, onChange}) {
+function BookPriceInput({pinPrice, dkPrice, oppPin, label, value, timestamp, onChange}) {
   const raw = value.trim();
   const parsed = raw === "" ? null : raw.startsWith("+") ? parseInt(raw) : parseInt(raw);
   const valid  = parsed != null && !isNaN(parsed) && parsed !== 0 && !(parsed > -100 && parsed < 100);
@@ -1115,10 +1123,22 @@ function BookPriceInput({pinPrice, dkPrice, oppPin, label, value, onChange}) {
   const hasGain   = clvDelta != null && parseFloat(clvDelta) > 0;
   const hasEdge   = myEdge != null && parseFloat(myEdge) > 0;
 
+  // ── Staleness: a manually-typed price has no source of truth to re-verify
+  // against automatically (unlike Pinnacle/DK, which refresh from the live odds
+  // feed) — it's exactly as current as when you typed it, and the market can
+  // move in the meantime without anything here telling you so. 15 minutes is a
+  // first-cut threshold, not empirically tuned (same honesty as the STEAM/ML-
+  // vacuum thresholds elsewhere in this app). This only tracks time since entry
+  // within THIS session — it doesn't persist across a reload.
+  const STALE_MS = 15 * 60 * 1000;
+  const ageMs = timestamp ? Date.now() - timestamp : null;
+  const isStale = ageMs != null && ageMs > STALE_MS;
+  const ageLabel = ageMs == null ? null : ageMs < 60000 ? "just now" : `${Math.round(ageMs/60000)}m ago`;
+
   return (
-    <div style={{marginTop:12,background:C.surfaceInset,border:`1px solid ${hasGain?"rgba(110,231,183,0.2)":C.cardBorder}`,borderRadius:R.md,padding:"10px 12px"}}>
+    <div style={{marginTop:12,background:C.surfaceInset,border:`1px solid ${isStale?"rgba(245,158,11,0.35)":hasGain?"rgba(110,231,183,0.2)":C.cardBorder}`,borderRadius:R.md,padding:"10px 12px"}}>
       <div style={{fontSize:9,color:C.textMuted,letterSpacing:LS.label,marginBottom:8}}>YOUR BOOK · {label}</div>
-      <div style={{display:"flex",gap:8,alignItems:"center",marginBottom: valid ? 10 : 0}}>
+      <div style={{display:"flex",gap:8,alignItems:"center",marginBottom: (valid||ageLabel) ? 6 : 0}}>
         <input
           type="text"
           placeholder="e.g. +100 or -108"
@@ -1136,6 +1156,13 @@ function BookPriceInput({pinPrice, dkPrice, oppPin, label, value, onChange}) {
           {hasEdge ? `+${myEdge}%` : `${myEdge}%`} edge
         </span>}
       </div>
+      {ageLabel && (
+        <div style={{fontSize:8,color:isStale?"#f59e0b":C.textMuted,marginBottom: valid ? 10 : 0,display:"flex",alignItems:"center",gap:4}}>
+          {isStale
+            ? <span>⚠ Entered {ageLabel} — recheck your book, the price may have moved since</span>
+            : <span>Entered {ageLabel}</span>}
+        </div>
+      )}
       {valid && (
         <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
           <div style={{background:C.surfaceInset,border:`1px solid ${C.cardBorder}`,borderRadius:R.sm,padding:"4px 8px"}}>
@@ -1160,7 +1187,7 @@ function BookPriceInput({pinPrice, dkPrice, oppPin, label, value, onChange}) {
   );
 }
 
-function OUView({game, impliedTotals, myPrice, onMyPriceChange}){
+function OUView({game, impliedTotals, myPrice, myPriceTs, onMyPriceChange}){
   const ou=game.ou||{};
   const oe=edge(ou.over_pin,ou.over_dk,ou.under_pin),ue=edge(ou.under_pin,ou.under_dk,ou.over_pin);
   const best=oe>=ue?"OVER":"UNDER";
@@ -1177,7 +1204,7 @@ function OUView({game, impliedTotals, myPrice, onMyPriceChange}){
       <SideCard label={`OVER ${ou.total}`}  pin={ou.over_pin}  dk={ou.over_dk}  oppPin={ou.under_pin} isLean={best==="OVER"}/>
       <SideCard label={`UNDER ${ou.total}`} pin={ou.under_pin} dk={ou.under_dk} oppPin={ou.over_pin}  isLean={best==="UNDER"}/>
     </div>
-    <BookPriceInput pinPrice={bestPin} dkPrice={bestDk} oppPin={bestOppPin} label={`${best} ${ou.total}`} value={myPrice} onChange={onMyPriceChange}/>
+    <BookPriceInput pinPrice={bestPin} dkPrice={bestDk} oppPin={bestOppPin} label={`${best} ${ou.total}`} value={myPrice} timestamp={myPriceTs} onChange={onMyPriceChange}/>
   </div>);
 }
 
@@ -1540,6 +1567,7 @@ function GameCard({rawGame, onLogBet, spRatings={}, sport, macroRest={}}){
   const isLive = rawGame.commenceTime ? new Date(rawGame.commenceTime).getTime() < Date.now() : false;
   const [tab,setTab]=useState(isLive ? "LIVE" : "ML");
   const [myPrices,setMyPrices]=useState({ML:"",SPREAD:"","O/U":""});
+  const [myPriceTs,setMyPriceTs]=useState({ML:null,SPREAD:null,"O/U":null});
   const [showLogForm,setShowLogForm]=useState(false);
   const [logStake,setLogStake]=useState("");
   const [slide,setSlide]=useState(1);
@@ -1551,7 +1579,10 @@ function GameCard({rawGame, onLogBet, spRatings={}, sport, macroRest={}}){
   const lh=rawGame.lean===rawGame.home;
   const mlP=lh?rawGame.ml?.home_pin:rawGame.ml?.away_pin;
   const steamDetected=!isLive&&rawGame.lineMove?.windowMove!=null&&rawGame.lineMove.windowMove<=-STEAM_CENTS_THRESHOLD;
-  const setMyPrice = (t,v) => setMyPrices(p=>({...p,[t]:v}));
+  const setMyPrice = (t,v) => {
+    setMyPrices(p=>({...p,[t]:v}));
+    setMyPriceTs(p=>({...p,[t]: v.trim()==="" ? null : Date.now()}));
+  };
 
   // The "1/2 · ODDS" / "2/2 · RESEARCH" nav implies a swipeable card, but
   // previously only the chevron buttons worked. This wires up an actual
@@ -1682,9 +1713,9 @@ function GameCard({rawGame, onLogBet, spRatings={}, sport, macroRest={}}){
 
       <div style={{marginBottom:12}}>
         {tab==="LIVE"  &&<LiveView   game={rawGame}/>}
-        {tab!=="LIVE"  &&tab==="ML"    &&<MLView     game={rawGame} mlVacuum={mlVacuum} myPrice={myPrices.ML}     onMyPriceChange={v=>setMyPrice("ML",v)}/>}
-        {tab!=="LIVE"  &&tab==="SPREAD"&&<SpreadView game={rawGame}                     myPrice={myPrices.SPREAD} onMyPriceChange={v=>setMyPrice("SPREAD",v)}/>}
-        {tab!=="LIVE"  &&tab==="O/U"   &&<OUView     game={rawGame} impliedTotals={impliedTotals} myPrice={myPrices["O/U"]} onMyPriceChange={v=>setMyPrice("O/U",v)}/>}
+        {tab!=="LIVE"  &&tab==="ML"    &&<MLView     game={rawGame} mlVacuum={mlVacuum} myPrice={myPrices.ML}     myPriceTs={myPriceTs.ML}     onMyPriceChange={v=>setMyPrice("ML",v)}/>}
+        {tab!=="LIVE"  &&tab==="SPREAD"&&<SpreadView game={rawGame}                     myPrice={myPrices.SPREAD} myPriceTs={myPriceTs.SPREAD} onMyPriceChange={v=>setMyPrice("SPREAD",v)}/>}
+        {tab!=="LIVE"  &&tab==="O/U"   &&<OUView     game={rawGame} impliedTotals={impliedTotals} myPrice={myPrices["O/U"]} myPriceTs={myPriceTs["O/U"]} onMyPriceChange={v=>setMyPrice("O/U",v)}/>}
       </div>
       </>)}
 
@@ -1894,7 +1925,7 @@ export default function App(){
       {betLogOpen&&<BetLogPanel log={betLog} onDelete={handleDeleteBet} onClose={()=>setBetLogOpen(false)}/>}
 
       <div style={{textAlign:"center",fontSize:8,color:"#1c2825",letterSpacing:LS.label,padding:"12px 0 0"}}>
-        SHARP BOOKS: PINNACLE · BOOKMAKER · LOWVIG · CONSENSUS ACROSS 8 BOOKS
+        SHARP BOOKS: PINNACLE (ANCHOR) · BOOKMAKER · LOWVIG · CONSENSUS ACROSS UP TO 7 OTHER BOOKS
       </div>
     </div>
   );
