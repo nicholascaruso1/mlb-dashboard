@@ -114,6 +114,14 @@ function normalizeCFBDName(name) {
   return CFBD_TO_DISPLAY[name] || name;
 }
 
+// Reverse of CFBD_TO_DISPLAY: our displayName() output → the name CFBD's API
+// expects in its `team` query param. Falls back to identity, which covers the
+// large majority of schools where our display name already matches CFBD's.
+const DISPLAY_TO_CFBD = Object.fromEntries(Object.entries(CFBD_TO_DISPLAY).map(([cfbd, disp]) => [disp, cfbd]));
+function toCFBDName(display) {
+  return DISPLAY_TO_CFBD[display] || display;
+}
+
 function parseCFBDResponse(data) {
   const map = {};
   for (const t of data) {
@@ -154,6 +162,39 @@ async function fetchLiveSPRatings() {
 }
 
 
+// ─── Macro rest-day fetch (NFL/NCAAF only — see analyze()'s macro section) ────
+// Real situational data (days of rest, short week, bye-week return) replacing
+// the old MACRO tag, which was just re-reading Pinnacle implied probability at
+// a lower threshold than MARKET — i.e. not situational at all. Backed by
+// netlify/functions/macro-rest.js (ESPN schedule for NFL, CollegeFootballData
+// for NCAAF). Cached per team+kickoff since a team's rest days for a given
+// game never change once computed.
+const MACRO_CACHE_TTL = 6 * 60 * 60 * 1000; // 6h
+function macroCacheKey(sport, team, asOf) { return `macro_rest_v1_${sport}_${team}_${asOf}`; }
+function getCachedMacro(sport, team, asOf) {
+  try {
+    const raw = localStorage.getItem(macroCacheKey(sport, team, asOf));
+    if (!raw) return null;
+    const { data, ts } = JSON.parse(raw);
+    if (Date.now() - ts > MACRO_CACHE_TTL) return null;
+    return data;
+  } catch { return null; }
+}
+function setCachedMacro(sport, team, asOf, data) {
+  try { localStorage.setItem(macroCacheKey(sport, team, asOf), JSON.stringify({ data, ts: Date.now() })); } catch {}
+}
+async function fetchMacroRest(sport, team, asOf) {
+  const cached = getCachedMacro(sport, team, asOf);
+  if (cached) return cached;
+  try {
+    const res = await fetch(`/.netlify/functions/macro-rest?sport=${sport}&team=${encodeURIComponent(team)}&asOf=${encodeURIComponent(asOf)}`);
+    const data = await res.json();
+    setCachedMacro(sport, team, asOf, data);
+    return data;
+  } catch {
+    return { restDays: null, note: "Client-side fetch failed" };
+  }
+}
 function displayName(fullName) {
   if (!fullName) return "";
   // Pro sports — already have clean abbreviations, use as-is
@@ -403,7 +444,7 @@ function devigProb(pLean, pOther){
 function edge(p,d,pOther){if(!p||!d)return 0;return devigProb(p,pOther)*toDec(d)-1;}
 function fmt(n){if(n==null||isNaN(Number(n)))return "—";const x=Number(n);return x>0?`+${x}`:`${x}`;}
 
-function analyze(game, spRatings = {}) {
+function analyze(game, spRatings = {}, sport, macroRest = {}) {
   const lh=game.lean===game.home;
   const ml=game.ml||{},sp=game.spread||{},ou=game.ou||{};
   const mlP=lh?ml.home_pin:ml.away_pin, mlD=lh?ml.home_dk:ml.away_dk, mlOppP=lh?ml.away_pin:ml.home_pin;
@@ -449,8 +490,47 @@ function analyze(game, spRatings = {}) {
   const gap=Math.abs(toDec(mlP)-toDec(mlD));
   const gameIsLive = game.commenceTime ? new Date(game.commenceTime).getTime() < Date.now() : false;
   const lm = gameIsLive ? { hasData: false } : (game.lineMove || {});
+
+  // ── Macro (Layer 1): real rest-day data for NFL/NCAAF, placeholder elsewhere ──
+  // "Clear situational disadvantage" is now a specific, numeric rule instead of an
+  // undocumented judgment call: the lean team is vetoed only if it has 3+ fewer
+  // rest days than its opponent, or is on a short week while the opponent isn't.
+  // Equal or unknown rest passes neutral (per the framework's own stated intent) —
+  // absence of data should not veto a bet. Other sports keep the old placeholder
+  // (impl > 0.52, effectively a duplicate of MARKET) until built out.
+  const macroSupported = sport === "NFL" || sport === "NCAAF";
+  let macroPass = impl > 0.52;
+  let macroDetail = { supported: false, note: "Not yet built for this sport — MACRO currently duplicates MARKET's threshold (see audit)." };
+  if (macroSupported) {
+    const asOf = game.commenceTime;
+    const leanTeamKey = sport === "NFL"
+      ? (lh ? game.home : game.away)
+      : toCFBDName(lh ? (game.homeDisplay || game.home) : (game.awayDisplay || game.away));
+    const oppTeamKey = sport === "NFL"
+      ? (lh ? game.away : game.home)
+      : toCFBDName(lh ? (game.awayDisplay || game.away) : (game.homeDisplay || game.home));
+    const leanRest = macroRest[`${sport}_${leanTeamKey}_${asOf}`];
+    const oppRest  = macroRest[`${sport}_${oppTeamKey}_${asOf}`];
+    if (leanRest?.restDays != null && oppRest?.restDays != null) {
+      const restDiff = leanRest.restDays - oppRest.restDays;
+      const disadvantage = restDiff <= -3 || (leanRest.shortWeek && !oppRest.shortWeek);
+      macroPass = !disadvantage;
+      macroDetail = {
+        supported: true, leanRest: leanRest.restDays, oppRest: oppRest.restDays,
+        restDiff, shortWeek: leanRest.shortWeek, byeReturn: leanRest.byeReturn, disadvantage,
+        note: disadvantage
+          ? `Lean team has a clear rest disadvantage: ${leanRest.restDays}d rest vs opponent's ${oppRest.restDays}d${leanRest.shortWeek ? " (short week)" : ""}.`
+          : `No clear rest disadvantage: ${leanRest.restDays}d rest vs opponent's ${oppRest.restDays}d.`,
+      };
+    } else {
+      macroPass = true; // neutral default — unknown/unavailable data doesn't veto
+      macroDetail = { supported: true, leanRest: leanRest?.restDays ?? null, oppRest: oppRest?.restDays ?? null,
+        note: "Rest data not yet loaded or unavailable for this matchup (e.g. season opener) — defaulting to neutral pass." };
+    }
+  }
+
   const tags={
-    MACRO:   impl>0.52,
+    MACRO:   macroPass,
     MARKET:  impl>0.54,
     CONFIRM: gap<0.15 && conScore>=0.6,
     VALUE:   bets[0].edge>0.01,
@@ -508,7 +588,7 @@ function analyze(game, spRatings = {}) {
     overVetoTeam: (leanSP?.defRank <= 8 ? leanDisp2 : null) || (dogSP?.defRank <= 8 ? dogDisp2 : null),
   } : null;
 
-  return {optimal:bets[0],bets,sig,tags,impl,conScore,sharpScore,mlVacuum,impliedTotals,keyNum,rlm,spFlag,gap,lm,leanDisp:leanDisp2};
+  return {optimal:bets[0],bets,sig,tags,impl,conScore,sharpScore,mlVacuum,impliedTotals,keyNum,rlm,spFlag,gap,lm,leanDisp:leanDisp2,macroDetail};
 }
 
 // ─── Signal Explainability ─────────────────────────────────────────────────────
@@ -517,20 +597,30 @@ function analyze(game, spRatings = {}) {
 // plain-language verdict. This is what powers the tap-to-explain panel on slide 2.
 function explainSignals(a) {
   const pct = n => n==null||isNaN(n) ? "—" : `${(n*100).toFixed(1)}%`;
-  const {impl, gap, conScore, bets, lm, tags} = a;
+  const {impl, gap, conScore, bets, lm, tags, macroDetail} = a;
   const edgeTop = bets?.[0]?.edge ?? 0;
+  const md = macroDetail || { supported: false };
 
   return {
-    MACRO: {
+    MACRO: md.supported ? {
       layer: "Layer 1 · Macro",
-      concept: "Situational context — rest, travel, schedule spot. Currently implemented as a placeholder threshold on market pricing until real NFL situational data (rest/travel/coaching flags) is wired in — it is not yet reading actual macro inputs the way MLB's automated rest-day check does.",
-      rule: "Pinnacle implied win probability > 52%",
+      concept: "Situational context — days of rest, short week, and bye-week return, compared between the lean team and its opponent.",
+      rule: "Veto only on a clear rest disadvantage: lean team has 3+ fewer rest days than the opponent, or is on a short week while the opponent isn't. Equal or unknown rest passes neutral.",
+      numbers: md.leanRest != null && md.oppRest != null
+        ? `Lean rest = ${md.leanRest}d · Opponent rest = ${md.oppRest}d${md.shortWeek ? " · lean on short week" : ""}`
+        : "Rest data unavailable for one or both teams in this matchup",
+      pass: tags.MACRO,
+      verdict: md.note,
+    } : {
+      layer: "Layer 1 · Macro",
+      concept: "Situational context — rest, travel, schedule spot.",
+      rule: "Pinnacle implied win probability > 52% (placeholder — see caveat)",
       numbers: `Pinnacle implied prob = ${pct(impl)}`,
       pass: tags.MACRO,
       verdict: tags.MACRO
         ? `Lit because implied probability (${pct(impl)}) clears the 52% floor.`
         : `Unlit because implied probability (${pct(impl)}) is at or below 52%.`,
-      caveat: "Honest caveat: this tag will read the same as MARKET until situational Macro logic (rest days, travel, coaching system flags) is built for NFL specifically.",
+      caveat: "Honest caveat: this tag currently duplicates MARKET's calculation (just a lower threshold) because real situational data hasn't been built for this sport yet. It's live for NFL and NCAAF.",
     },
     MARKET: {
       layer: "Layer 2 · Market",
@@ -1359,7 +1449,7 @@ function NFLResearchPanel({game, analysis, explain}){
   );
 }
 
-function GameCard({rawGame, onLogBet, spRatings={}, sport}){
+function GameCard({rawGame, onLogBet, spRatings={}, sport, macroRest={}}){
   const isLive = rawGame.commenceTime ? new Date(rawGame.commenceTime).getTime() < Date.now() : false;
   const [tab,setTab]=useState(isLive ? "LIVE" : "ML");
   const [myPrices,setMyPrices]=useState({ML:"",SPREAD:"","O/U":""});
@@ -1367,7 +1457,7 @@ function GameCard({rawGame, onLogBet, spRatings={}, sport}){
   const [logStake,setLogStake]=useState("");
   const [slide,setSlide]=useState(1);
   const [expandedTag,setExpandedTag]=useState(null);
-  const analysis=analyze(rawGame, spRatings);
+  const analysis=analyze(rawGame, spRatings, sport, macroRest);
   const {optimal,bets,sig,tags,mlVacuum,impliedTotals,keyNum,rlm,spFlag}=analysis;
   const explain=explainSignals(analysis);
   const isNFL = sport==="NFL";
@@ -1536,6 +1626,7 @@ export default function App(){
   const [betLog,setBetLog]=useState(()=>loadBetLog());
   const [betLogOpen,setBetLogOpen]=useState(false);
   const [spRatings,setSpRatings]=useState({});
+  const [macroRest,setMacroRest]=useState({});
 
   useEffect(()=>{
     fetchLiveSPRatings().then(data=>{ if(data) setSpRatings(data); });
@@ -1582,15 +1673,46 @@ export default function App(){
   useEffect(()=>{load(sport);},[sport]);
 
   const cur=games[sport]||[],isLoading=loading[sport],err=errors[sport],upd=updated[sport];
-  const filtered=cur.filter(g=>{try{return analyze(g,spRatings).sig>=sigFilter;}catch(e){console.error(`analyze() failed during filter for ${g.gameKey}:`,e);return false;}});
+
+  useEffect(()=>{
+    if (sport !== "NFL" && sport !== "NCAAF") return;
+    let cancelled = false;
+    (async () => {
+      const pairs = [];
+      const seen = new Set();
+      for (const g of cur) {
+        const asOf = g.commenceTime;
+        if (!asOf) continue;
+        const awayKey = sport === "NFL" ? g.away : toCFBDName(g.awayDisplay || g.away);
+        const homeKey = sport === "NFL" ? g.home : toCFBDName(g.homeDisplay || g.home);
+        for (const team of [awayKey, homeKey]) {
+          const cacheKey = `${sport}_${team}_${asOf}`;
+          if (!seen.has(cacheKey) && !(cacheKey in macroRest)) { seen.add(cacheKey); pairs.push({team, asOf, cacheKey}); }
+        }
+      }
+      if (!pairs.length) return;
+      const results = await Promise.all(pairs.map(p =>
+        fetchMacroRest(sport === "NFL" ? "nfl" : "cfb", p.team, p.asOf).then(data => [p.cacheKey, data])
+      ));
+      if (cancelled) return;
+      setMacroRest(prev => {
+        const next = { ...prev };
+        for (const [key, data] of results) next[key] = data;
+        return next;
+      });
+    })();
+    return () => { cancelled = true; };
+  }, [cur, sport]);
+
+  const filtered=cur.filter(g=>{try{return analyze(g,spRatings,sport,macroRest).sig>=sigFilter;}catch(e){console.error(`analyze() failed during filter for ${g.gameKey}:`,e);return false;}});
   const sorted=[...filtered].sort((a,b)=>{
     let av,bv;
     if(sortBy==="time"){
       av=a.commenceTime?new Date(a.commenceTime).getTime():0;
       bv=b.commenceTime?new Date(b.commenceTime).getTime():0;
     }else{
-      try{av=analyze(a,spRatings).optimal.edge;}catch(e){console.error(`analyze() failed during sort for ${a.gameKey}:`,e);av=-Infinity;}
-      try{bv=analyze(b,spRatings).optimal.edge;}catch(e){console.error(`analyze() failed during sort for ${b.gameKey}:`,e);bv=-Infinity;}
+      try{av=analyze(a,spRatings,sport,macroRest).optimal.edge;}catch(e){console.error(`analyze() failed during sort for ${a.gameKey}:`,e);av=-Infinity;}
+      try{bv=analyze(b,spRatings,sport,macroRest).optimal.edge;}catch(e){console.error(`analyze() failed during sort for ${b.gameKey}:`,e);bv=-Infinity;}
     }
     return sortDir==="asc"?av-bv:bv-av;
   });
@@ -1680,7 +1802,7 @@ export default function App(){
         )}
         {!isLoading&&(!err||cur.length>0)&&sorted.length===0&&cur.length>0&&<div style={{textAlign:"center",padding:"40px 0",color:C.textMuted,fontSize:11}}>No games at Signal {sigFilter}+ — try lowering the filter</div>}
         {!isLoading&&!err&&cur.length===0&&upd&&<div style={{textAlign:"center",padding:"40px 0",color:C.textMuted,fontSize:11}}>No {sport} games today</div>}
-        {!isLoading&&(!err||cur.length>0)&&sorted.map((g)=>{try{return<GameCard key={g.gameKey} rawGame={g} onLogBet={handleLogBet} spRatings={spRatings} sport={sport}/>;}catch(e){console.error(`GameCard render failed for ${g.gameKey}:`,e);return null;}})}
+        {!isLoading&&(!err||cur.length>0)&&sorted.map((g)=>{try{return<GameCard key={g.gameKey} rawGame={g} onLogBet={handleLogBet} spRatings={spRatings} sport={sport} macroRest={macroRest}/>;}catch(e){console.error(`GameCard render failed for ${g.gameKey}:`,e);return null;}})}
       </div>
       {betLogOpen&&<BetLogPanel log={betLog} onDelete={handleDeleteBet} onClose={()=>setBetLogOpen(false)}/>}
 
