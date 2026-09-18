@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 
 const SHARP_BOOKS = ["pinnacle", "bookmaker", "lowvig"];
 const ALL_BOOKS   = ["pinnacle", "draftkings", "fanduel", "betmgm", "caesars", "bookmaker", "lowvig", "betonlineag"];
@@ -981,8 +981,40 @@ function loadBetLog() {
   try { return JSON.parse(localStorage.getItem("bet_log_v2") || "[]"); } catch { return []; }
 }
 
+// ─── Persisted last-selected sport ─────────────────────────────────────────────
+function loadLastSport() {
+  try {
+    const saved = localStorage.getItem("last_sport");
+    return SPORTS.some(s => s.key === saved) ? saved : "MLB";
+  } catch { return "MLB"; }
+}
+function saveLastSport(sport) {
+  try { localStorage.setItem("last_sport", sport); } catch {}
+}
+
 // ─── Bet Log Panel ─────────────────────────────────────────────────────────────
 function BetLogPanel({log, onDelete, onClose}) {
+  // Delete is soft: clicking ✕ swaps the row for an "UNDO" placeholder and
+  // only calls onDelete after a 5s window if the user doesn't undo.
+  const [pendingId, setPendingId] = useState(null);
+  const timerRef = useRef(null);
+
+  useEffect(() => () => { if (timerRef.current) clearTimeout(timerRef.current); }, []);
+
+  function requestDelete(id) {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    setPendingId(id);
+    timerRef.current = setTimeout(() => {
+      onDelete(id);
+      setPendingId(null);
+      timerRef.current = null;
+    }, 5000);
+  }
+  function undoDelete() {
+    if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null; }
+    setPendingId(null);
+  }
+
   return (
     <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.85)",zIndex:100,display:"flex",flexDirection:"column"}}>
       <div style={{background:C.card,borderBottom:`1px solid ${C.cardBorder}`,padding:"12px 14px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
@@ -996,6 +1028,14 @@ function BetLogPanel({log, onDelete, onClose}) {
           </div>
         )}
         {[...log].reverse().map(b => {
+          if (b.id === pendingId) {
+            return (
+              <div key={b.id} style={{background:C.surfaceInset,border:`1px solid ${C.cardBorder}`,borderRadius:R.lg,padding:"10px 12px",marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                <span style={{fontSize:10,color:C.textMuted}}>Bet deleted — {b.pick}</span>
+                <button onClick={undoDelete} style={{background:"transparent",border:`1px solid ${C.accentBorder}`,borderRadius:R.pill,color:C.accent,fontSize:9,fontWeight:700,letterSpacing:"0.05em",padding:"4px 12px",cursor:"pointer"}}>↩ UNDO</button>
+              </div>
+            );
+          }
           const clv = calcCLV(b.entryOdds, b.pinAtEntry);
           const clvNum = clv ? parseFloat(clv) : null;
           const clvColor = clvNum > 0 ? C.positive : clvNum < 0 ? "#f87171" : C.textMuted;
@@ -1006,7 +1046,7 @@ function BetLogPanel({log, onDelete, onClose}) {
                   <div style={{fontSize:11,fontWeight:700,color:C.text,marginBottom:2}}>{b.pick}</div>
                   <div style={{fontSize:9,color:C.textMuted}}>{b.game} · {b.sport} · {new Date(b.ts).toLocaleDateString("en-US",{month:"numeric",day:"numeric",hour:"numeric",minute:"2-digit"})}</div>
                 </div>
-                <button onClick={()=>onDelete(b.id)} style={{background:"transparent",border:"none",color:C.textMuted,fontSize:12,cursor:"pointer",padding:"0 4px"}}>✕</button>
+                <button onClick={()=>requestDelete(b.id)} style={{background:"transparent",border:"none",color:C.textMuted,fontSize:12,cursor:"pointer",padding:"0 4px"}}>✕</button>
               </div>
               <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
                 <div style={{background:C.surfaceInset,border:`1px solid ${C.cardBorder}`,borderRadius:R.sm,padding:"3px 8px"}}>
@@ -1220,8 +1260,26 @@ function GameCard({rawGame, onLogBet, spRatings={}, sport}){
   const steamDetected=!isLive&&rawGame.lineMove?.hasData&&rawGame.lineMove?.ml<-3;
   const setMyPrice = (t,v) => setMyPrices(p=>({...p,[t]:v}));
 
+  // The "1/2 · ODDS" / "2/2 · RESEARCH" nav implies a swipeable card, but
+  // previously only the chevron buttons worked. This wires up an actual
+  // horizontal swipe (threshold-gated so taps/scrolls don't misfire).
+  const touchStart = useRef(null);
+  function handleTouchStart(e){
+    touchStart.current = { x:e.touches[0].clientX, y:e.touches[0].clientY };
+  }
+  function handleTouchEnd(e){
+    if (!touchStart.current) return;
+    const dx = e.changedTouches[0].clientX - touchStart.current.x;
+    const dy = e.changedTouches[0].clientY - touchStart.current.y;
+    touchStart.current = null;
+    if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+      if (dx < 0 && slide === 1) setSlide(2);
+      if (dx > 0 && slide === 2) setSlide(1);
+    }
+  }
+
   return(
-    <div style={{background:steamDetected?"rgba(248,113,113,0.04)":C.card,border:`1px solid ${steamDetected?"rgba(248,113,113,0.2)":C.cardBorder}`,borderRadius:R.lg,padding:"14px 14px 12px",marginBottom:10}}>
+    <div onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd} style={{background:steamDetected?"rgba(248,113,113,0.04)":C.card,border:`1px solid ${steamDetected?"rgba(248,113,113,0.2)":C.cardBorder}`,borderRadius:R.lg,padding:"14px 14px 12px",marginBottom:10}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:12}}>
         <div>
           <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:4}}>
@@ -1238,7 +1296,6 @@ function GameCard({rawGame, onLogBet, spRatings={}, sport}){
           <div style={{fontSize:11,color:C.textDim,fontFamily:"monospace",marginBottom:5}}>◄ {lh?rawGame.homeDisplay:rawGame.awayDisplay} {fmt(mlP)}</div>
           <div style={{display:"flex",alignItems:"center",gap:6,justifyContent:"flex-end"}}>
             {steamDetected&&<span style={{fontSize:8,color:C.steam,background:C.steamBg,border:`1px solid ${C.steamBorder}`,borderRadius:3,padding:"2px 5px"}}>🔥 STEAM</span>}
-            <span style={{fontSize:8,color:C.textMuted,background:"#0f1614",border:`1px solid ${C.cardBorder}`,borderRadius:3,padding:"2px 5px"}}>MACRO AUTO</span>
             <SignalBars count={sig}/>
             <span style={{fontSize:9,color:sig===4?"#f59e0b":C.textDim}}>{sig}/4</span>
           </div>
@@ -1345,7 +1402,11 @@ function GameCard({rawGame, onLogBet, spRatings={}, sport}){
 
 // ─── App ──────────────────────────────────────────────────────────────────────
 export default function App(){
-  const [sport,setSport]=useState("MLB");
+  const [sport,setSportState]=useState(loadLastSport);
+  function setSport(s) {
+    setSportState(s);
+    saveLastSport(s);
+  }
   const [games,setGames]=useState({});
   const [loading,setLoading]=useState({});
   const [errors,setErrors]=useState({});
