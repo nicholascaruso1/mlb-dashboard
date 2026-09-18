@@ -208,6 +208,42 @@ function cleanOldLines() {
   } catch {}
 }
 
+// ─── localStorage closing-line capture (for real CLV, not entry-vs-entry) ──────
+// "CLV" only means something when it compares your entry price to the CLOSING
+// line (last price right before kickoff) — not to whatever Pinnacle showed at
+// the moment you logged the bet (that's just your entry edge, already shown
+// elsewhere). Since there's no paid historical-odds feed wired up, this app
+// approximates the closing line by snapshotting BOTH sides' Pinnacle prices on
+// every poll while the game hasn't started, and simply stopping once it has —
+// so whatever was last written is the last price the app itself observed pre-
+// kickoff. Caveat, and it matters: if you never had the app open in the final
+// minutes before a game starts, this snapshot may be stale relative to the
+// true closing number, not the true close. The bet log should say so rather
+// than presenting an approximation as exact.
+function getClosingSnapshots() {
+  try { return JSON.parse(localStorage.getItem("closing_lines_v1")||"{}"); } catch { return {}; }
+}
+function storeLatestLine(gameKey, snapshot, isLive) {
+  if (isLive) return; // freeze: stop writing once the game has started
+  try {
+    const stored = getClosingSnapshots();
+    stored[gameKey] = { ...snapshot, ts: Date.now() };
+    localStorage.setItem("closing_lines_v1", JSON.stringify(stored));
+  } catch {}
+}
+function getClosingSnapshot(gameKey) {
+  const stored = getClosingSnapshots();
+  return stored[gameKey] || null;
+}
+function cleanOldClosingSnapshots() {
+  try {
+    const stored = getClosingSnapshots();
+    const cutoff = Date.now() - 14*24*60*60*1000; // keep 14 days so a logged bet can still resolve CLV after the fact
+    const cleaned = Object.fromEntries(Object.entries(stored).filter(([,v])=>v.ts>cutoff));
+    localStorage.setItem("closing_lines_v1", JSON.stringify(cleaned));
+  } catch {}
+}
+
 // ─── Odds Cache ───────────────────────────────────────────────────────────────
 // TTL controls both manual-cache-hit behavior AND the auto-refresh cadence below.
 // The Odds API bills per request as (markets requested × regions requested) —
@@ -242,6 +278,7 @@ async function fetchLiveOdds(sport) {
   const sportObj = SPORTS.find(s=>s.key===sport);
   if (!sportObj) throw new Error("Unknown sport");
   cleanOldLines();
+  cleanOldClosingSnapshots();
 
   const books = ALL_BOOKS.join(",");
   const isCollege = sportObj.oddsKey.includes("ncaa");
@@ -322,13 +359,21 @@ async function fetchLiveOdds(sport) {
     const mlMove   = opening && pinMLLean   ? pinMLLean   - opening.pinML     : 0;
     const ouMove   = opening && ou.total    ? ou.total    - opening.pinTotal  : 0;
 
+    // ── Closing-line snapshot for CLV (see storeLatestLine comment) ──
+    const gameIsLive = new Date(game.commence_time).getTime() < Date.now();
+    storeLatestLine(gameKey, {
+      home_pin: ml.home_pin, away_pin: ml.away_pin,
+      home_spread_pin: spread.home_pin, away_spread_pin: spread.away_pin,
+      total: ou.total, over_pin: ou.over_pin, under_pin: ou.under_pin,
+    }, gameIsLive);
+
     return {
       away, home,
       awayDisplay: displayName(game.away_team),
       homeDisplay: displayName(game.home_team),
       time: formatTime(game.commence_time), commenceTime: game.commence_time,
-      isLive: new Date(game.commence_time).getTime() < Date.now(),
-      ml, spread, ou, lean, gameKey,
+      isLive: gameIsLive,
+      ml, spread, ou, lean, leanIsHome, gameKey,
       consensus: { agree: agreeBooks, total: totalBooks, sharpAgree, sharpTotal },
       lineMove:  { ml: mlMove, ou: ouMove, hasData: !!opening },
     };
@@ -367,9 +412,9 @@ function analyze(game, spRatings = {}) {
   const ouSide=oe>=ue?"OVER":"UNDER";
   const leanDisp = lh ? (game.homeDisplay||game.home) : (game.awayDisplay||game.away);
   const bets=[
-    {type:"ML",     edge:edge(mlP,mlD,mlOppP), label:`${leanDisp} ML`,                          dk:mlD,pin:mlP},
-    {type:"SPREAD", edge:edge(spP,spD,spOppP), label:`${leanDisp} ${spL>0?"+":""}${spL}`,       dk:spD,pin:spP},
-    {type:"O/U",    edge:Math.max(oe,ue),label:`${ouSide} ${ou.total}`,                  dk:ouSide==="OVER"?ou.over_dk:ou.under_dk,pin:ouSide==="OVER"?ou.over_pin:ou.under_pin},
+    {type:"ML",     edge:edge(mlP,mlD,mlOppP), label:`${leanDisp} ML`,                          dk:mlD,pin:mlP,side:lh?"home":"away"},
+    {type:"SPREAD", edge:edge(spP,spD,spOppP), label:`${leanDisp} ${spL>0?"+":""}${spL}`,       dk:spD,pin:spP,side:lh?"home":"away"},
+    {type:"O/U",    edge:Math.max(oe,ue),label:`${ouSide} ${ou.total}`,                  dk:ouSide==="OVER"?ou.over_dk:ou.under_dk,pin:ouSide==="OVER"?ou.over_pin:ou.under_pin,side:ouSide==="OVER"?"over":"under"},
   ];
   bets.sort((a,b)=>b.edge-a.edge);
   // impl is the Macro/Market anchor probability (drives the 52%/54% tag thresholds and
@@ -1004,6 +1049,19 @@ function calcCLV(entryOdds, currentPinOdds) {
   if (!e || !c) return null;
   return ((e - c) / c * 100).toFixed(1);
 }
+// Looks up the closing-line snapshot for the specific side/market the bet was
+// actually placed on (see storeLatestLine above) — returns null if no pre-kickoff
+// snapshot was ever captured for this game (e.g. the app wasn't open before it
+// started), rather than silently falling back to something else.
+function resolveClosingPrice(bet) {
+  if (!bet.gameKey) return null;
+  const snap = getClosingSnapshot(bet.gameKey);
+  if (!snap) return null;
+  if (bet.market === "ML")     return bet.side === "home" ? snap.home_pin : snap.away_pin;
+  if (bet.market === "SPREAD") return bet.side === "home" ? snap.home_spread_pin : snap.away_spread_pin;
+  if (bet.market === "O/U")    return bet.side === "over" ? snap.over_pin : snap.under_pin;
+  return null;
+}
 function saveBetLog(log) {
   try { localStorage.setItem("bet_log_v2", JSON.stringify(log)); } catch {}
 }
@@ -1031,6 +1089,12 @@ function BetLogPanel({log, onDelete, onClose}) {
 
   useEffect(() => () => { if (timerRef.current) clearTimeout(timerRef.current); }, []);
 
+  const resolvedClvs = log
+    .map(b => { const cp = resolveClosingPrice(b); return cp != null ? parseFloat(calcCLV(b.entryOdds, cp)) : null; })
+    .filter(v => v != null);
+  const avgClv = resolvedClvs.length ? (resolvedClvs.reduce((a,b)=>a+b,0) / resolvedClvs.length).toFixed(1) : null;
+  const avgClvColor = avgClv == null ? C.textMuted : parseFloat(avgClv) > 0 ? C.positive : "#f87171";
+
   function requestDelete(id) {
     if (timerRef.current) clearTimeout(timerRef.current);
     setPendingId(id);
@@ -1052,6 +1116,17 @@ function BetLogPanel({log, onDelete, onClose}) {
         <button onClick={onClose} style={{background:"transparent",border:`1px solid ${C.cardBorder}`,borderRadius:R.pill,color:C.textDim,fontSize:10,fontWeight:600,padding:"4px 12px",cursor:"pointer"}}>✕ CLOSE</button>
       </div>
       <div style={{flex:1,overflowY:"auto",padding:12}}>
+        {log.length > 0 && (
+          <div style={{background:C.surfaceInset,border:`1px solid ${C.cardBorder}`,borderRadius:R.md,padding:"10px 12px",marginBottom:12,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+            <div>
+              <div style={{fontSize:8,color:C.textMuted,letterSpacing:LS.label}}>AVG CLV · PRIMARY PERFORMANCE METRIC</div>
+              <div style={{fontSize:9,color:C.textMuted,marginTop:2}}>{resolvedClvs.length} of {log.length} bet{log.length===1?"":"s"} have a captured closing line</div>
+            </div>
+            <div style={{fontFamily:"monospace",fontSize:20,fontWeight:800,color:avgClvColor}}>
+              {avgClv != null ? (parseFloat(avgClv)>0?`+${avgClv}%`:`${avgClv}%`) : "—"}
+            </div>
+          </div>
+        )}
         {log.length === 0 && (
           <div style={{textAlign:"center",padding:"60px 0",color:C.textMuted,fontSize:11}}>
             No bets logged yet. Tap LOG BET on any game card.
@@ -1066,7 +1141,8 @@ function BetLogPanel({log, onDelete, onClose}) {
               </div>
             );
           }
-          const clv = calcCLV(b.entryOdds, b.pinAtEntry);
+          const closingPin = resolveClosingPrice(b);
+          const clv = closingPin != null ? calcCLV(b.entryOdds, closingPin) : null;
           const clvNum = clv ? parseFloat(clv) : null;
           const clvColor = clvNum > 0 ? C.positive : clvNum < 0 ? "#f87171" : C.textMuted;
           return (
@@ -1087,6 +1163,16 @@ function BetLogPanel({log, onDelete, onClose}) {
                   <span style={{fontSize:8,color:C.textMuted}}>PIN @ ENTRY </span>
                   <span style={{fontSize:10,fontFamily:"monospace",fontWeight:700,color:C.textDim}}>{fmt(b.pinAtEntry)}</span>
                 </div>}
+                {closingPin != null ? (
+                  <div style={{background:C.surfaceInset,border:`1px solid ${C.cardBorder}`,borderRadius:R.sm,padding:"3px 8px"}}>
+                    <span style={{fontSize:8,color:C.textMuted}}>PIN @ CLOSE </span>
+                    <span style={{fontSize:10,fontFamily:"monospace",fontWeight:700,color:C.textDim}}>{fmt(closingPin)}</span>
+                  </div>
+                ) : (
+                  <div style={{background:C.surfaceInset,border:`1px solid ${C.cardBorder}`,borderRadius:R.sm,padding:"3px 8px"}}>
+                    <span style={{fontSize:8,color:C.textMuted}}>CLV pending — no pre-kickoff line captured</span>
+                  </div>
+                )}
                 {clv && <div style={{background:clvNum>0?"rgba(110,231,183,0.06)":"rgba(248,113,113,0.06)",border:`1px solid ${clvNum>0?"rgba(110,231,183,0.2)":"rgba(248,113,113,0.2)"}`,borderRadius:R.sm,padding:"3px 8px"}}>
                   <span style={{fontSize:8,color:C.textMuted}}>CLV </span>
                   <span style={{fontSize:10,fontFamily:"monospace",fontWeight:700,color:clvColor}}>{clvNum>0?`+${clv}%`:`${clv}%`}</span>
@@ -1387,7 +1473,8 @@ function GameCard({rawGame, onLogBet, spRatings={}, sport}){
               onLogBet({
                 id: Date.now(), ts: new Date().toISOString(),
                 game: `${rawGame.awayDisplay||rawGame.away} @ ${rawGame.homeDisplay||rawGame.home}`,
-                pick: optimal?.label, market: optimal?.type,
+                pick: optimal?.label, market: optimal?.type, side: optimal?.side,
+                gameKey: rawGame.gameKey,
                 entryOdds: optimal?.dk, pinAtEntry: optimal?.pin,
                 stake: logStake || null,
               });
