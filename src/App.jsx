@@ -249,6 +249,70 @@ function cleanOldLines() {
   } catch {}
 }
 
+// ─── localStorage line-movement history (for real STEAM timing) ───────────────
+// The old STEAM check compared the current price only to the one-time opening
+// snapshot, so a 3-cent move over 3 days and a 3-cent move in 3 minutes produced
+// the exact identical tag — there was no timing component at all, despite
+// "coordinated sharp money" being fundamentally about speed, not just magnitude.
+// This keeps a short timestamped price history per game and asks "how much has
+// this moved within just the last STEAM_WINDOW_MS?" — slow drift naturally
+// reads near-zero in any single recent window, while a fast, coordinated move
+// shows up fully in it.
+// CAVEAT, stated plainly rather than hidden: resolution is bounded by how often
+// this app is actually open/refreshed — there's no background polling. A real
+// fast move that happens while the app is closed is captured as one point at
+// the next refresh, not as a smooth timeseries. This is strictly better than
+// the old all-time-since-open comparison, but it's an approximation, not a
+// true tick-by-tick feed.
+const STEAM_WINDOW_MS = 60 * 60 * 1000;       // 1 hour — first cut, not empirically calibrated
+const STEAM_CENTS_THRESHOLD = 3;               // unchanged from the old (untimed) threshold
+const LINE_HISTORY_MAX_AGE_MS = 48 * 60 * 60 * 1000; // prune points older than 48h
+const LINE_HISTORY_MAX_POINTS = 100;           // hard cap per game regardless of age
+
+function getLineHistory() {
+  try { return JSON.parse(localStorage.getItem("line_history_v1")||"{}"); } catch { return {}; }
+}
+function appendLineHistory(gameKey, pinML) {
+  if (pinML == null) return;
+  try {
+    const all = getLineHistory();
+    const hist = all[gameKey] || [];
+    const last = hist[hist.length-1];
+    // Skip if the price hasn't actually changed since the last recorded point —
+    // avoids bloating history with duplicate values on every refresh/poll.
+    if (!last || last.pinML !== pinML) hist.push({ ts: Date.now(), pinML });
+    const cutoff = Date.now() - LINE_HISTORY_MAX_AGE_MS;
+    all[gameKey] = hist.filter(p=>p.ts>cutoff).slice(-LINE_HISTORY_MAX_POINTS);
+    localStorage.setItem("line_history_v1", JSON.stringify(all));
+  } catch {}
+}
+function cleanOldLineHistory() {
+  try {
+    const all = getLineHistory();
+    const cutoff = Date.now() - LINE_HISTORY_MAX_AGE_MS;
+    const cleaned = {};
+    for (const [k, hist] of Object.entries(all)) {
+      const kept = (hist||[]).filter(p=>p.ts>cutoff).slice(-LINE_HISTORY_MAX_POINTS);
+      if (kept.length) cleaned[k] = kept;
+    }
+    localStorage.setItem("line_history_v1", JSON.stringify(cleaned));
+  } catch {}
+}
+// Returns the ML move within the last `windowMs`, or null if there isn't
+// enough recorded history yet to say anything ("insufficient data" rather than
+// a false "no movement").
+function getWindowedMove(gameKey, windowMs) {
+  const hist = getLineHistory()[gameKey];
+  if (!hist || hist.length < 2) return null;
+  const now = Date.now();
+  const cutoff = now - windowMs;
+  const inWindow = hist.filter(p=>p.ts>=cutoff);
+  const baseline = inWindow.length ? inWindow[0] : hist[0]; // whole history is younger than the window → use its oldest point
+  const latest = hist[hist.length-1];
+  if (baseline === latest) return null; // need at least 2 distinct points to measure a move
+  return { move: latest.pinML - baseline.pinML, spanMs: latest.ts - baseline.ts, points: hist.length };
+}
+
 // ─── localStorage closing-line capture (for real CLV, not entry-vs-entry) ──────
 // "CLV" only means something when it compares your entry price to the CLOSING
 // line (last price right before kickoff) — not to whatever Pinnacle showed at
@@ -320,6 +384,7 @@ async function fetchLiveOdds(sport) {
   if (!sportObj) throw new Error("Unknown sport");
   cleanOldLines();
   cleanOldClosingSnapshots();
+  cleanOldLineHistory();
 
   const books = ALL_BOOKS.join(",");
   const isCollege = sportObj.oddsKey.includes("ncaa");
@@ -408,6 +473,10 @@ async function fetchLiveOdds(sport) {
       total: ou.total, over_pin: ou.over_pin, under_pin: ou.under_pin,
     }, gameIsLive);
 
+    // ── Timestamped history for real STEAM timing (see getWindowedMove comment) ──
+    if (!gameIsLive) appendLineHistory(gameKey, pinMLLean);
+    const windowed = gameIsLive ? null : getWindowedMove(gameKey, STEAM_WINDOW_MS);
+
     return {
       away, home,
       awayDisplay: displayName(game.away_team),
@@ -416,7 +485,8 @@ async function fetchLiveOdds(sport) {
       isLive: gameIsLive,
       ml, spread, ou, lean, leanIsHome, gameKey,
       consensus: { agree: agreeBooks, total: totalBooks, sharpAgree, sharpTotal },
-      lineMove:  { ml: mlMove, ou: ouMove, hasData: !!opening },
+      lineMove:  { ml: mlMove, ou: ouMove, hasData: !!opening,
+        windowMove: windowed?.move ?? null, windowSpanMs: windowed?.spanMs ?? null, windowPoints: windowed?.points ?? null },
     };
   }).filter(g=>g.ml.away_pin&&g.ml.home_pin);
 
@@ -534,7 +604,7 @@ function analyze(game, spRatings = {}, sport, macroRest = {}) {
     MARKET:  impl>0.54,
     CONFIRM: gap<0.15 && conScore>=0.6,
     VALUE:   bets[0].edge>0.01,
-    STEAM:   lm.hasData && lm.ml<-3,
+    STEAM:   lm.windowMove != null && lm.windowMove <= -STEAM_CENTS_THRESHOLD,
   };
   // ── Key Number Proximity ─────────────────────────────────────────────────────
   // Flags when the spread line is within 0.5 of a key number
@@ -654,15 +724,18 @@ function explainSignals(a) {
     },
     STEAM: {
       layer: "Cross-cutting · Steam",
-      concept: "Detects coordinated sharp money by watching for fast line movement toward the lean since the opening line — not one of the 4 core layers, but an urgency flag layered on top.",
-      rule: "Opening-line tracker has data AND ML has moved 3+ cents toward the lean",
-      numbers: lm?.hasData ? `ML movement since open = ${lm.ml>0?"+":""}${lm.ml}` : "No opening-line snapshot stored yet for this game",
+      concept: "Detects coordinated sharp money by watching for FAST line movement — a real timing component now, not just total movement since the line opened. A 3-cent move over 3 days and a 3-cent move in 3 minutes used to get the identical tag; now only the second one lights up.",
+      rule: `ML has moved ${STEAM_CENTS_THRESHOLD}+ cents toward the lean within the last ${Math.round(STEAM_WINDOW_MS/60000)} minutes of recorded history`,
+      numbers: lm?.windowMove != null
+        ? `Moved ${lm.windowMove>0?"+":""}${lm.windowMove}¢ over the last ${Math.round((lm.windowSpanMs||0)/60000)} min (${lm.windowPoints} recorded snapshot${lm.windowPoints===1?"":"s"})`
+        : "Not enough recorded price history yet to measure a windowed move (needs at least 2 snapshots — open the app again closer to kickoff to build history)",
       pass: tags.STEAM,
       verdict: tags.STEAM
-        ? `Lit — the line has moved ${lm?.ml} cents toward the lean since it opened, consistent with sharp money.`
-        : lm?.hasData
-          ? `Unlit — line movement (${lm?.ml ?? 0}) hasn't hit the 3-cent threshold yet.`
-          : `Unlit — no opening line has been captured for this game yet, so movement can't be measured. (Open the app before the line opens to start tracking.)`,
+        ? `Lit — ${lm.windowMove}¢ of movement toward the lean within ~${Math.round((lm.windowSpanMs||0)/60000)} minutes, consistent with fast/coordinated money rather than slow drift.`
+        : lm?.windowMove != null
+          ? `Unlit — recent movement (${lm.windowMove}¢ over ~${Math.round((lm.windowSpanMs||0)/60000)} min) hasn't hit the ${STEAM_CENTS_THRESHOLD}-cent threshold.`
+          : `Unlit — insufficient recorded history to tell fast movement from slow drift yet.`,
+      caveat: "Honest caveat: resolution depends on how often this app is open/refreshed — there's no background polling, so a fast move while the app is closed shows up as one point at the next refresh, not a smooth timeline.",
     },
   };
 }
@@ -776,7 +849,7 @@ function ConsensusBar({consensus, lineMove}) {
   if (!consensus||consensus.total===0) return null;
   const pct=Math.round((consensus.agree/consensus.total)*100);
   const allSharpAgree=consensus.sharpTotal>0&&consensus.sharpAgree===consensus.sharpTotal;
-  const steamDetected=lineMove?.hasData&&lineMove?.ml<-3;
+  const steamDetected=lineMove?.windowMove!=null&&lineMove.windowMove<=-STEAM_CENTS_THRESHOLD;
 
   return (
     <div style={{background:C.surfaceInset,borderRadius:R.md,padding:"10px 12px",marginBottom:10}}>
@@ -1463,7 +1536,7 @@ function GameCard({rawGame, onLogBet, spRatings={}, sport, macroRest={}}){
   const isNFL = sport==="NFL";
   const lh=rawGame.lean===rawGame.home;
   const mlP=lh?rawGame.ml?.home_pin:rawGame.ml?.away_pin;
-  const steamDetected=!isLive&&rawGame.lineMove?.hasData&&rawGame.lineMove?.ml<-3;
+  const steamDetected=!isLive&&rawGame.lineMove?.windowMove!=null&&rawGame.lineMove.windowMove<=-STEAM_CENTS_THRESHOLD;
   const setMyPrice = (t,v) => setMyPrices(p=>({...p,[t]:v}));
 
   // The "1/2 · ODDS" / "2/2 · RESEARCH" nav implies a swipeable card, but
