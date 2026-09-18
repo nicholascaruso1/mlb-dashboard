@@ -511,7 +511,7 @@ function explainSignals(a) {
 // ─── Colors ───────────────────────────────────────────────────────────────────
 const C={
   bg:"#080c0b", card:"#0f1614", cardBorder:"#1c2825", text:"#e2e8f0",
-  textDim:"#94a3b8", textMuted:"#475569", accent:"#f59e0b",
+  textDim:"#94a3b8", textMuted:"#8a95a5", accent:"#f59e0b",
   accentDim:"rgba(245,158,11,0.1)", accentBorder:"rgba(245,158,11,0.25)",
   positive:"#6ee7b7", positiveBg:"rgba(110,231,183,0.05)",
   positiveBorder:"rgba(110,231,183,0.15)", lean:"#f1f5f9", nonLean:"#334155",
@@ -520,7 +520,7 @@ const C={
 
 // ─── Components ───────────────────────────────────────────────────────────────
 function SignalBars({count}){
-  const col=count===4?"#f59e0b":count===3?"#6ee7b7":"#334155";
+  const col=count===4?"#f59e0b":count===3?"#6ee7b7":count===2?"#3b82f6":"#334155";
   return(<div style={{display:"flex",alignItems:"flex-end",gap:2}}>{[1,2,3,4].map(i=><div key={i} style={{width:5,height:4+i*4,background:i<=count?col:"#1c2825",borderRadius:1}}/>)}</div>);
 }
 
