@@ -170,12 +170,18 @@ function displayName(fullName) {
   if (words.length === 2) return words[0];
   return fullName;
 }
-function formatTime(iso) {
-  const d = new Date(iso);
-  const day = d.toLocaleDateString("en-US",{weekday:"short"});
+// Shared date/time formatter — used for both upcoming game times (with
+// weekday + timezone) and bet-log entries (just date + time), so both
+// read as the same "M/D · h:mm" family instead of two ad hoc formats.
+function formatDateTime(dateInput, {withDay=true, withTz=true}={}) {
+  const d = new Date(dateInput);
+  const day = withDay ? `${d.toLocaleDateString("en-US",{weekday:"short"})} ` : "";
   const date = d.toLocaleDateString("en-US",{month:"numeric",day:"numeric"});
-  const time = d.toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit",timeZoneName:"short"});
-  return `${day} ${date} · ${time}`;
+  const time = d.toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit",...(withTz?{timeZoneName:"short"}:{})});
+  return `${day}${date} · ${time}`;
+}
+function formatTime(iso) {
+  return formatDateTime(iso);
 }
 
 // ─── localStorage line movement ───────────────────────────────────────────────
@@ -531,6 +537,11 @@ const C={
 // (SignalBars ticks, ConsensusBar track), which aren't part of this scale.
 const R = { sm:6, md:8, lg:10, pill:20, circle:"50%" };
 
+// ─── Letter-spacing scale ───────────────────────────────────────────────────
+// Consolidates 6 near-duplicate tracking values (0.05–0.12em) used for
+// ALL-CAPS eyebrow/label text down to 2 intentional tiers.
+const LS = { label:"0.07em", wide:"0.1em" };
+
 // ─── Components ───────────────────────────────────────────────────────────────
 // Shared alert/info callout used by KeyNumBadge, RLMBadge, SPBadge, and
 // OptimalBadge's dog-alert row — extracted to remove the near-identical
@@ -543,7 +554,7 @@ function Callout({icon, color, bg, border, title, children, compact, marginBotto
       <span style={{fontSize:title?11:9,color}}>{icon}</span>
       {title ? (
         <div>
-          <span style={{fontSize:9,fontWeight:700,color,letterSpacing:"0.07em"}}>{title}</span>
+          <span style={{fontSize:9,fontWeight:700,color,letterSpacing:LS.label}}>{title}</span>
           <div style={{fontSize:8,color:C.textMuted,marginTop:2,lineHeight}}>{children}</div>
         </div>
       ) : (
@@ -561,7 +572,7 @@ function SignalBars({count}){
 function Tag({label,active,color,onClick}){
   const c=color||C.positive;
   return(
-    <button onClick={onClick} style={{fontSize:10,fontWeight:600,letterSpacing:"0.07em",padding:"3px 8px",borderRadius:R.sm,border:`1px solid ${active?C.selectedBorder:C.cardBorder}`,color:active?C.textDim:C.textMuted,background:active?C.selectedBg:"transparent",display:"inline-flex",alignItems:"center",gap:4,cursor:"pointer",fontFamily:"inherit"}}>
+    <button onClick={onClick} style={{fontSize:10,fontWeight:600,letterSpacing:LS.label,padding:"3px 8px",borderRadius:R.sm,border:`1px solid ${active?C.selectedBorder:C.cardBorder}`,color:active?C.textDim:C.textMuted,background:active?C.selectedBg:"transparent",display:"inline-flex",alignItems:"center",gap:4,cursor:"pointer",fontFamily:"inherit"}}>
       {active&&<span style={{width:5,height:5,borderRadius:R.circle,background:c,display:"inline-block"}}/>}
       {label}
       <span style={{fontSize:8,opacity:0.5}}>ⓘ</span>
@@ -574,7 +585,7 @@ function SignalExplainPanel({explain, expandedTag, onToggle}){
   const order = ["MACRO","MARKET","CONFIRM","VALUE","STEAM"];
   return (
     <div>
-      <div style={{fontSize:9,color:C.textMuted,letterSpacing:"0.07em",marginBottom:8}}>
+      <div style={{fontSize:9,color:C.textMuted,letterSpacing:LS.label,marginBottom:8}}>
         SIGNAL BREAKDOWN · tap any layer to see the live numbers behind it
       </div>
       {order.map(key=>{
@@ -582,7 +593,7 @@ function SignalExplainPanel({explain, expandedTag, onToggle}){
         const isOpen = expandedTag===key;
         return (
           <div key={key} style={{marginBottom:6,border:`1px solid ${e.pass?C.selectedBorder:C.cardBorder}`,borderRadius:R.md,overflow:"hidden"}}>
-            <button onClick={()=>onToggle(isOpen?null:key)} style={{width:"100%",textAlign:"left",background:e.pass?C.selectedBg:C.surfaceInset,border:"none",padding:"8px 10px",cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center",fontFamily:"inherit"}}>
+            <button onClick={()=>onToggle(isOpen?null:key)} aria-expanded={isOpen} aria-controls={`signal-panel-${key}`} style={{width:"100%",textAlign:"left",background:e.pass?C.selectedBg:C.surfaceInset,border:"none",padding:"8px 10px",cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center",fontFamily:"inherit"}}>
               <span style={{display:"flex",alignItems:"center",gap:6}}>
                 <span style={{width:6,height:6,borderRadius:R.circle,background:e.pass?(key==="STEAM"?C.steam:C.positive):C.textMuted,display:"inline-block"}}/>
                 <span style={{fontSize:11,fontWeight:700,color:e.pass?C.text:C.textDim}}>{key}</span>
@@ -591,7 +602,7 @@ function SignalExplainPanel({explain, expandedTag, onToggle}){
               <span style={{fontSize:10,color:C.textMuted}}>{isOpen?"▲":"▼"}</span>
             </button>
             {isOpen && (
-              <div style={{padding:"8px 10px 10px",background:"#080c0b",borderTop:`1px solid ${C.cardBorder}`}}>
+              <div id={`signal-panel-${key}`} style={{padding:"8px 10px 10px",background:"#080c0b",borderTop:`1px solid ${C.cardBorder}`}}>
                 <div style={{fontSize:10,color:C.textDim,marginBottom:6,lineHeight:1.5}}>{e.concept}</div>
                 <div style={{fontSize:9,color:C.textMuted,marginBottom:3}}>RULE</div>
                 <div style={{fontSize:10,color:C.text,fontFamily:"monospace",marginBottom:6}}>{e.rule}</div>
@@ -617,7 +628,7 @@ function ConsensusBar({consensus, lineMove}) {
   return (
     <div style={{background:C.surfaceInset,borderRadius:R.md,padding:"10px 12px",marginBottom:10}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
-        <span style={{fontSize:9,color:C.textMuted,letterSpacing:"0.08em"}}>BOOK CONSENSUS</span>
+        <span style={{fontSize:9,color:C.textMuted,letterSpacing:LS.label}}>BOOK CONSENSUS</span>
         <span style={{fontSize:9,color:C.textMuted}}>{consensus.agree}/{consensus.total} books</span>
       </div>
 
@@ -718,13 +729,13 @@ function OptimalBadge({bet, impliedTotals}){
     <div style={{marginBottom:10}}>
       <div style={{background:hasEdge?C.accentDim:"rgba(255,255,255,0.02)",border:`1px solid ${hasEdge?C.accentBorder:C.cardBorder}`,borderRadius:R.md,padding:"9px 12px",display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom: dogAlert ? 6 : 0}}>
         <div>
-          <div style={{fontSize:9,color:hasEdge?C.accent:C.textMuted,letterSpacing:"0.1em",marginBottom:3}}>★ OPTIMAL BET</div>
+          <div style={{fontSize:9,color:hasEdge?C.accent:C.textMuted,letterSpacing:LS.wide,marginBottom:3}}>★ OPTIMAL BET</div>
           <div style={{fontSize:15,fontWeight:700,color:C.text,fontFamily:"monospace"}}>
             {bet.label}<span style={{fontSize:12,color:C.textDim,marginLeft:8}}>{fmt(bet.dk)}</span>
           </div>
         </div>
         <div style={{textAlign:"right"}}>
-          <div style={{fontSize:9,color:C.textMuted,letterSpacing:"0.07em",marginBottom:3}}>EDGE vs PIN</div>
+          <div style={{fontSize:9,color:C.textMuted,letterSpacing:LS.label,marginBottom:3}}>EDGE vs PIN</div>
           <div style={{fontSize:17,fontWeight:800,fontFamily:"monospace",color:hasEdge?C.accent:C.textMuted}}>{hasEdge?`+${ep}%`:`${ep}%`}</div>
         </div>
       </div>
@@ -743,7 +754,7 @@ function BetTabs({active,onChange,bets}){
       {["ML","SPREAD","O/U"].map(t=>{
         const isActive=active===t;
         const isOpt=bets[0]?.type===t;
-        return(<button key={t} onClick={()=>onChange(t)} style={{flex:1,padding:"6px 0",borderRadius:R.sm,border:`1px solid ${isActive?C.selectedBorder:"transparent"}`,background:isActive?C.selectedBg:"transparent",color:isActive?C.text:isOpt?C.textDim:C.textMuted,fontSize:10,fontWeight:700,letterSpacing:"0.07em",cursor:"pointer",position:"relative"}}>
+        return(<button key={t} onClick={()=>onChange(t)} aria-pressed={isActive} style={{flex:1,padding:"6px 0",borderRadius:R.sm,border:`1px solid ${isActive?C.selectedBorder:"transparent"}`,background:isActive?C.selectedBg:"transparent",color:isActive?C.text:isOpt?C.textDim:C.textMuted,fontSize:10,fontWeight:700,letterSpacing:LS.label,cursor:"pointer",position:"relative"}}>
           {t}{isOpt&&!isActive&&<span style={{position:"absolute",top:-3,right:4,width:5,height:5,borderRadius:R.circle,background:C.accent,display:"block"}}/>}
         </button>);
       })}
@@ -778,7 +789,7 @@ function MLView({game, mlVacuum, myPrice, onMyPriceChange}){
           </span>
         </div>
       )}
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 60px 80px",gap:8,alignItems:"start"}}>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr minmax(0,60px) minmax(0,80px)",gap:8,alignItems:"start"}}>
         <div>
           <div style={{fontSize:9,color:C.textMuted,marginBottom:5}}>LEAN ML</div>
           <div style={{fontSize:9,color:C.textMuted,display:"flex",gap:16,marginBottom:3}}><span>PIN</span><span>DK</span></div>
@@ -833,7 +844,7 @@ function ImpliedTotalsRow({impliedTotals, leanTeam, dogTeam}) {
   const dogBorder= dogUnderpricedFlag ? C.steamBorder : dogMildFlag ? "rgba(245,158,11,0.25)" : C.cardBorder;
   return (
     <div style={{marginBottom:10}}>
-      <div style={{fontSize:9,color:C.textMuted,letterSpacing:"0.08em",marginBottom:6}}>IMPLIED TEAM TOTALS</div>
+      <div style={{fontSize:9,color:C.textMuted,letterSpacing:LS.label,marginBottom:6}}>IMPLIED TEAM TOTALS</div>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
         <div style={{background:C.surfaceInset,border:`1px solid ${C.cardBorder}`,borderRadius:R.sm,padding:"8px 11px"}}>
           <div style={{fontSize:9,color:C.positive,marginBottom:4}}>▲ FAV · {leanTeam}</div>
@@ -866,7 +877,7 @@ function BookPriceInput({pinPrice, dkPrice, label, value, onChange}) {
 
   return (
     <div style={{marginTop:12,background:C.surfaceInset,border:`1px solid ${hasGain?"rgba(110,231,183,0.2)":C.cardBorder}`,borderRadius:R.md,padding:"10px 12px"}}>
-      <div style={{fontSize:9,color:C.textMuted,letterSpacing:"0.08em",marginBottom:8}}>YOUR BOOK · {label}</div>
+      <div style={{fontSize:9,color:C.textMuted,letterSpacing:LS.label,marginBottom:8}}>YOUR BOOK · {label}</div>
       <div style={{display:"flex",gap:8,alignItems:"center",marginBottom: valid ? 10 : 0}}>
         <input
           type="text"
@@ -959,7 +970,7 @@ function SPBadge({spFlag, optimalType}) {
     const dDef = spFlag.dogDef  ? `Def #${spFlag.dogDef}`  : "";
     rows.push(
       <div key="info" style={{background:C.surfaceInset,border:`1px solid ${C.cardBorder}`,borderRadius:R.sm,padding:"5px 10px",marginBottom:6,display:"flex",gap:16,alignItems:"center"}}>
-        <span style={{fontSize:8,color:C.textMuted,letterSpacing:"0.07em"}}>SP+</span>
+        <span style={{fontSize:8,color:C.textMuted,letterSpacing:LS.label}}>SP+</span>
         {(lOff||lDef) && <span style={{fontSize:8,color:C.textDim}}><strong>{spFlag.leanName}</strong> {[lOff,lDef].filter(Boolean).join(" · ")}</span>}
         {(dOff||dDef) && <span style={{fontSize:8,color:C.textMuted}}><strong>{spFlag.dogName}</strong> {[dOff,dDef].filter(Boolean).join(" · ")}</span>}
       </div>
@@ -1018,7 +1029,7 @@ function BetLogPanel({log, onDelete, onClose}) {
   return (
     <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.85)",zIndex:100,display:"flex",flexDirection:"column"}}>
       <div style={{background:C.card,borderBottom:`1px solid ${C.cardBorder}`,padding:"12px 14px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-        <span style={{fontSize:13,fontWeight:800,letterSpacing:"0.1em",color:C.text}}>BET LOG</span>
+        <span style={{fontSize:13,fontWeight:800,letterSpacing:LS.wide,color:C.text}}>BET LOG</span>
         <button onClick={onClose} style={{background:"transparent",border:`1px solid ${C.cardBorder}`,borderRadius:R.pill,color:C.textDim,fontSize:10,fontWeight:600,padding:"4px 12px",cursor:"pointer"}}>✕ CLOSE</button>
       </div>
       <div style={{flex:1,overflowY:"auto",padding:12}}>
@@ -1032,7 +1043,7 @@ function BetLogPanel({log, onDelete, onClose}) {
             return (
               <div key={b.id} style={{background:C.surfaceInset,border:`1px solid ${C.cardBorder}`,borderRadius:R.lg,padding:"10px 12px",marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                 <span style={{fontSize:10,color:C.textMuted}}>Bet deleted — {b.pick}</span>
-                <button onClick={undoDelete} style={{background:"transparent",border:`1px solid ${C.accentBorder}`,borderRadius:R.pill,color:C.accent,fontSize:9,fontWeight:700,letterSpacing:"0.05em",padding:"4px 12px",cursor:"pointer"}}>↩ UNDO</button>
+                <button onClick={undoDelete} style={{background:"transparent",border:`1px solid ${C.accentBorder}`,borderRadius:R.pill,color:C.accent,fontSize:9,fontWeight:700,letterSpacing:LS.label,padding:"4px 12px",cursor:"pointer"}}>↩ UNDO</button>
               </div>
             );
           }
@@ -1044,7 +1055,7 @@ function BetLogPanel({log, onDelete, onClose}) {
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:6}}>
                 <div>
                   <div style={{fontSize:11,fontWeight:700,color:C.text,marginBottom:2}}>{b.pick}</div>
-                  <div style={{fontSize:9,color:C.textMuted}}>{b.game} · {b.sport} · {new Date(b.ts).toLocaleDateString("en-US",{month:"numeric",day:"numeric",hour:"numeric",minute:"2-digit"})}</div>
+                  <div style={{fontSize:9,color:C.textMuted}}>{b.game} · {b.sport} · {formatDateTime(b.ts,{withDay:false,withTz:false})}</div>
                 </div>
                 <button onClick={()=>requestDelete(b.id)} style={{background:"transparent",border:"none",color:C.textMuted,fontSize:12,cursor:"pointer",padding:"0 4px"}}>✕</button>
               </div>
@@ -1092,14 +1103,14 @@ function LiveView({game}) {
         <span style={{fontSize:9,color:C.live}}>● LIVE</span>
         <span style={{fontSize:8,color:C.textMuted}}>Line movement reflects game score — not sharp pre-game action. Edge vs Pinnacle still valid for live bet value.</span>
       </div>
-      <div style={{display:"grid",gridTemplateColumns:"60px 1fr 1fr 60px",gap:6,marginBottom:6}}>
+      <div style={{display:"grid",gridTemplateColumns:"minmax(0,60px) 1fr 1fr minmax(0,60px)",gap:6,marginBottom:6}}>
         <div style={{fontSize:8,color:C.textMuted}}>MARKET</div>
         <div style={{fontSize:8,color:C.lean}}>▲ {leanDisp}</div>
         <div style={{fontSize:8,color:C.nonLean}}>▼ {dogDisp}</div>
         <div style={{fontSize:8,color:C.textMuted}}>MOVE</div>
       </div>
       {rows.map(r=>(
-        <div key={r.label} style={{display:"grid",gridTemplateColumns:"60px 1fr 1fr 60px",gap:6,padding:"7px 0",borderTop:`1px solid ${C.cardBorder}`}}>
+        <div key={r.label} style={{display:"grid",gridTemplateColumns:"minmax(0,60px) 1fr 1fr minmax(0,60px)",gap:6,padding:"7px 0",borderTop:`1px solid ${C.cardBorder}`}}>
           <div style={{fontSize:9,color:C.textMuted,fontWeight:700}}>{r.label}</div>
           <div>
             <div style={{fontFamily:"monospace",fontSize:13,fontWeight:700,color:C.lean}}>{r.leanVal}</div>
@@ -1185,12 +1196,12 @@ function NFLResearchPanel({game, analysis, explain}){
 
   return (
     <div style={{marginTop:14,paddingTop:12,borderTop:`1px solid ${C.cardBorder}`}}>
-      <div style={{fontSize:9,color:C.textMuted,letterSpacing:"0.07em",marginBottom:8}}>
+      <div style={{fontSize:9,color:C.textMuted,letterSpacing:LS.label,marginBottom:8}}>
         NFL RESEARCH · inactives typically post ~90 min before kickoff
       </div>
 
       {!data && !loading && (
-        <button onClick={loadContext} style={{width:"100%",background:"transparent",border:`1px dashed ${C.cardBorder}`,borderRadius:R.sm,color:C.textMuted,fontSize:10,fontWeight:600,padding:"8px 0",cursor:"pointer",letterSpacing:"0.05em",marginBottom:8}}>
+        <button onClick={loadContext} style={{width:"100%",background:"transparent",border:`1px dashed ${C.cardBorder}`,borderRadius:R.sm,color:C.textMuted,fontSize:10,fontWeight:600,padding:"8px 0",cursor:"pointer",letterSpacing:LS.label,marginBottom:8}}>
           + LOAD INJURY REPORT / INACTIVES
         </button>
       )}
@@ -1223,7 +1234,7 @@ function NFLResearchPanel({game, analysis, explain}){
       )}
 
       {!ai && !aiLoading && (
-        <button onClick={generateAnalysis} style={{width:"100%",background:"rgba(245,158,11,0.06)",border:`1px solid ${C.accentBorder}`,borderRadius:R.sm,color:C.accent,fontSize:10,fontWeight:700,padding:"8px 0",cursor:"pointer",letterSpacing:"0.05em"}}>
+        <button onClick={generateAnalysis} style={{width:"100%",background:"rgba(245,158,11,0.06)",border:`1px solid ${C.accentBorder}`,borderRadius:R.sm,color:C.accent,fontSize:10,fontWeight:700,padding:"8px 0",cursor:"pointer",letterSpacing:LS.label}}>
           ✦ GENERATE AI ANALYSIS
         </button>
       )}
@@ -1235,7 +1246,7 @@ function NFLResearchPanel({game, analysis, explain}){
       )}
       {ai && (
         <div style={{background:C.surfaceInset,border:`1px solid ${C.accentBorder}`,borderRadius:R.md,padding:"10px 12px",marginTop:4}}>
-          <div style={{fontSize:9,color:C.accent,fontWeight:700,letterSpacing:"0.07em",marginBottom:6}}>✦ AI ANALYSIS</div>
+          <div style={{fontSize:9,color:C.accent,fontWeight:700,letterSpacing:LS.label,marginBottom:6}}>✦ AI ANALYSIS</div>
           <div style={{fontSize:11,color:C.textDim,lineHeight:1.6,whiteSpace:"pre-wrap"}}>{ai}</div>
         </div>
       )}
@@ -1283,8 +1294,8 @@ function GameCard({rawGame, onLogBet, spRatings={}, sport}){
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:12}}>
         <div>
           <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:4}}>
-            <span style={{fontSize:9,color:C.textMuted,letterSpacing:"0.06em"}}>{rawGame.time}</span>
-            {isLive && <span style={{fontSize:8,fontWeight:700,color:C.live,background:C.liveBg,border:`1px solid ${C.liveBorder}`,borderRadius:3,padding:"1px 5px",letterSpacing:"0.06em"}}>● LIVE</span>}
+            <span style={{fontSize:9,color:C.textMuted,letterSpacing:LS.label}}>{rawGame.time}</span>
+            {isLive && <span style={{fontSize:8,fontWeight:700,color:C.live,background:C.liveBg,border:`1px solid ${C.liveBorder}`,borderRadius:3,padding:"1px 5px",letterSpacing:LS.label}}>● LIVE</span>}
           </div>
           <div style={{display:"flex",alignItems:"center",gap:8}}>
             <span style={{fontSize:18,fontWeight:800,fontFamily:"monospace",color:!lh?C.lean:C.nonLean}}>{rawGame.awayDisplay}</span>
@@ -1304,11 +1315,11 @@ function GameCard({rawGame, onLogBet, spRatings={}, sport}){
 
       {/* SLIDE NAV */}
       <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:10,marginBottom:10}}>
-        <button onClick={()=>setSlide(1)} disabled={slide===1} style={{background:"transparent",border:"none",color:slide===1?C.textMuted:C.text,fontSize:11,cursor:slide===1?"default":"pointer",opacity:slide===1?0.3:1,padding:"2px 6px"}}>‹</button>
-        <span style={{fontSize:9,color:C.textMuted,letterSpacing:"0.1em",fontFamily:"monospace"}}>
+        <button onClick={()=>setSlide(1)} disabled={slide===1} aria-label="Previous: ODDS" style={{background:"transparent",border:"none",color:slide===1?C.textMuted:C.text,fontSize:11,cursor:slide===1?"default":"pointer",opacity:slide===1?0.3:1,padding:"2px 6px"}}>‹</button>
+        <span style={{fontSize:9,color:C.textMuted,letterSpacing:LS.wide,fontFamily:"monospace"}}>
           {slide===1 ? "1/2 · ODDS" : "2/2 · RESEARCH"}
         </span>
-        <button onClick={()=>setSlide(2)} disabled={slide===2} style={{background:"transparent",border:"none",color:slide===2?C.textMuted:C.text,fontSize:11,cursor:slide===2?"default":"pointer",opacity:slide===2?0.3:1,padding:"2px 6px"}}>›</button>
+        <button onClick={()=>setSlide(2)} disabled={slide===2} aria-label="Next: RESEARCH" style={{background:"transparent",border:"none",color:slide===2?C.textMuted:C.text,fontSize:11,cursor:slide===2?"default":"pointer",opacity:slide===2?0.3:1,padding:"2px 6px"}}>›</button>
       </div>
 
       {slide===2 && (
@@ -1332,13 +1343,13 @@ function GameCard({rawGame, onLogBet, spRatings={}, sport}){
       <OptimalBadge bet={optimal} impliedTotals={impliedTotals}/>
       {/* LOG BET */}
       {!showLogForm && (
-        <button onClick={()=>setShowLogForm(true)} style={{width:"100%",background:"transparent",border:`1px dashed ${C.cardBorder}`,borderRadius:R.sm,color:C.textMuted,fontSize:9,fontWeight:600,padding:"5px 0",cursor:"pointer",letterSpacing:"0.07em",marginBottom:10}}>
+        <button onClick={()=>setShowLogForm(true)} style={{width:"100%",background:"transparent",border:`1px dashed ${C.cardBorder}`,borderRadius:R.sm,color:C.textMuted,fontSize:9,fontWeight:600,padding:"5px 0",cursor:"pointer",letterSpacing:LS.label,marginBottom:10}}>
           + LOG BET
         </button>
       )}
       {showLogForm && (
         <div style={{background:C.surfaceInset,border:`1px solid ${C.positiveBorder}`,borderRadius:R.md,padding:"10px 12px",marginBottom:10}}>
-          <div style={{fontSize:9,color:C.positive,fontWeight:700,letterSpacing:"0.07em",marginBottom:8}}>LOG BET · {optimal?.label}</div>
+          <div style={{fontSize:9,color:C.positive,fontWeight:700,letterSpacing:LS.label,marginBottom:8}}>LOG BET · {optimal?.label}</div>
           <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:8}}>
             <div style={{flex:1}}>
               <div style={{fontSize:8,color:C.textMuted,marginBottom:3}}>ENTRY ODDS</div>
@@ -1347,7 +1358,7 @@ function GameCard({rawGame, onLogBet, spRatings={}, sport}){
             </div>
             <div style={{flex:1}}>
               <div style={{fontSize:8,color:C.textMuted,marginBottom:3}}>STAKE ($)</div>
-              <input type="number" placeholder="e.g. 20" value={logStake} onChange={e=>setLogStake(e.target.value)}
+              <input type="number" placeholder="e.g. $20" value={logStake} onChange={e=>setLogStake(e.target.value)}
                 className="app-focusable"
                 style={{width:"100%",background:C.surfaceInset,border:`1px solid ${C.cardBorder}`,borderRadius:R.sm,color:C.text,fontSize:12,fontWeight:700,padding:"5px 8px",outline:"none",boxSizing:"border-box"}}/>
             </div>
@@ -1374,11 +1385,12 @@ function GameCard({rawGame, onLogBet, spRatings={}, sport}){
       <div style={{display: isLive ? "block" : "none", marginBottom:10}}>
         <button
           onClick={()=>setTab(tab==="LIVE" ? "ML" : "LIVE")}
+          aria-pressed={tab==="LIVE"}
           style={{width:"100%",padding:"8px 0",borderRadius:R.md,
             border: tab==="LIVE" ? `2px solid ${C.live}` : "2px solid rgba(74,222,128,0.25)",
             background: tab==="LIVE" ? "rgba(74,222,128,0.08)" : "transparent",
             color: tab==="LIVE" ? C.live : "rgba(74,222,128,0.5)",
-            fontSize:11,fontWeight:800,letterSpacing:"0.1em",cursor:"pointer"}}>
+            fontSize:11,fontWeight:800,letterSpacing:LS.wide,cursor:"pointer"}}>
           {tab==="LIVE" ? "● LIVE LINES  ✕ CLOSE" : "● VIEW LIVE LINES →"}
         </button>
       </div>
@@ -1481,7 +1493,7 @@ export default function App(){
     <div style={{background:C.bg,minHeight:"100vh",fontFamily:"'Inter',system-ui,sans-serif",paddingBottom:40}}>
       <div style={{background:C.bg,borderBottom:`1px solid ${C.cardBorder}`,padding:"12px 14px",position:"sticky",top:0,zIndex:10}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-          <span style={{fontSize:12,color:C.text,fontWeight:800,letterSpacing:"0.12em"}}>SIGNALS</span>
+          <span style={{fontSize:12,color:C.text,fontWeight:800,letterSpacing:LS.wide}}>SIGNALS</span>
           <button onClick={()=>load(sport,true)} disabled={isLoading} title="Bypasses the cache — costs 3 API credits (3 markets × 1 region)" style={{background:"transparent",border:`1px solid ${C.cardBorder}`,borderRadius:R.pill,color:C.textDim,fontSize:10,fontWeight:600,padding:"4px 12px",cursor:"pointer"}}>
             {isLoading?"⟳ LOADING...":"⟳ FORCE (uses 3 credits)"}
           </button>
@@ -1492,9 +1504,9 @@ export default function App(){
 
         <div style={{display:"flex",gap:4,marginBottom:10,overflowX:"auto",paddingBottom:2}}>
           {SPORTS.map(s=>(
-            <button key={s.key} onClick={()=>setSport(s.key)} style={{padding:"5px 12px",borderRadius:R.pill,whiteSpace:"nowrap",border:`1px solid ${sport===s.key?C.selectedBorder:C.cardBorder}`,background:sport===s.key?C.selectedBg:"transparent",color:sport===s.key?C.text:C.textMuted,fontSize:11,fontWeight:600,cursor:"pointer",position:"relative"}}>
+            <button key={s.key} onClick={()=>setSport(s.key)} aria-pressed={sport===s.key} style={{padding:"5px 12px",borderRadius:R.pill,whiteSpace:"nowrap",border:`1px solid ${sport===s.key?C.selectedBorder:C.cardBorder}`,background:sport===s.key?C.selectedBg:"transparent",color:sport===s.key?C.text:C.textMuted,fontSize:11,fontWeight:600,cursor:"pointer",position:"relative"}}>
               {s.emoji} {s.label}
-              {games[s.key]?.length>0&&sport!==s.key&&<span style={{position:"absolute",top:-3,right:-2,width:5,height:5,borderRadius:R.circle,background:"#6ee7b7",display:"block"}}/>}
+              {games[s.key]?.length>0&&sport!==s.key&&<span style={{position:"absolute",top:-3,right:-2,width:5,height:5,borderRadius:R.circle,background:C.positive,display:"block"}}/>}
             </button>
           ))}
         </div>
@@ -1514,12 +1526,12 @@ export default function App(){
 
         <div style={{display:"flex",gap:4,marginBottom:8}}>
           {[1,2,3,4].map(n=>(
-            <button key={n} onClick={()=>setSigFilter(n)} style={{padding:"4px 12px",borderRadius:R.pill,border:`1px solid ${sigFilter===n?C.selectedBorder:C.cardBorder}`,background:sigFilter===n?C.selectedBg:"transparent",color:sigFilter===n?C.text:C.textMuted,fontSize:10,fontWeight:600,cursor:"pointer"}}>Signal {n}+</button>
+            <button key={n} onClick={()=>setSigFilter(n)} aria-pressed={sigFilter===n} style={{padding:"4px 12px",borderRadius:R.pill,border:`1px solid ${sigFilter===n?C.selectedBorder:C.cardBorder}`,background:sigFilter===n?C.selectedBg:"transparent",color:sigFilter===n?C.text:C.textMuted,fontSize:10,fontWeight:600,cursor:"pointer"}}>Signal {n}+</button>
           ))}
         </div>
 
         <div style={{display:"flex",gap:6,alignItems:"center"}}>
-          <span style={{fontSize:9,color:C.textMuted,letterSpacing:"0.06em"}}>SORT</span>
+          <span style={{fontSize:9,color:C.textMuted,letterSpacing:LS.label}}>SORT</span>
           <select value={sortBy} onChange={e=>setSortBy(e.target.value)} className="app-focusable" style={{background:C.surfaceInset,border:`1px solid ${C.cardBorder}`,borderRadius:R.sm,color:C.textDim,fontSize:10,padding:"3px 8px",cursor:"pointer",outline:"none"}}>
             <option value="edge">Edge vs Pinnacle</option>
             <option value="time">Start Time</option>
@@ -1542,9 +1554,9 @@ export default function App(){
         {isLoading&&(
           <div style={{textAlign:"center",padding:"60px 0",color:C.textDim}}>
             <div style={{fontSize:28,marginBottom:12,animation:"spin 1s linear infinite"}}>⟳</div>
-            <div style={{fontSize:11,letterSpacing:"0.1em"}}>FETCHING {sport} ODDS</div>
+            <div style={{fontSize:11,letterSpacing:LS.wide}}>FETCHING {sport} ODDS</div>
             <div style={{fontSize:9,color:C.textMuted,marginTop:6}}>Pulling 8 books including Pinnacle, Bookmaker, LowVig...</div>
-            <style>{`@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}`}</style>
+            <style>{`@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}@media (prefers-reduced-motion: reduce){[style*="spin 1s linear infinite"]{animation:none}}`}</style>
           </div>
         )}
         {err&&!isLoading&&cur.length===0&&(
@@ -1566,7 +1578,7 @@ export default function App(){
       </div>
       {betLogOpen&&<BetLogPanel log={betLog} onDelete={handleDeleteBet} onClose={()=>setBetLogOpen(false)}/>}
 
-      <div style={{textAlign:"center",fontSize:8,color:"#1c2825",letterSpacing:"0.08em",padding:"12px 0 0"}}>
+      <div style={{textAlign:"center",fontSize:8,color:"#1c2825",letterSpacing:LS.label,padding:"12px 0 0"}}>
         SHARP BOOKS: PINNACLE · BOOKMAKER · LOWVIG · CONSENSUS ACROSS 8 BOOKS
       </div>
     </div>
