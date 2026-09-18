@@ -515,19 +515,26 @@ const C={
   accentDim:"rgba(245,158,11,0.1)", accentBorder:"rgba(245,158,11,0.25)",
   positive:"#6ee7b7", positiveBg:"rgba(110,231,183,0.05)",
   positiveBorder:"rgba(110,231,183,0.15)", lean:"#f1f5f9", nonLean:"#334155",
-  steam:"#f87171", steamBg:"rgba(248,113,113,0.08)",
+  steam:"#f87171", steamBg:"rgba(248,113,113,0.08)", steamBorder:"rgba(248,113,113,0.25)",
+  info:"#3b82f6", danger:"#ef4444",
+  warning:"#eab308", warningBg:"rgba(234,179,8,0.06)", warningBorder:"rgba(234,179,8,0.3)",
+  live:"#4ade80", liveBg:"rgba(74,222,128,0.1)", liveBorder:"rgba(74,222,128,0.3)",
+  // Consolidated near-duplicate near-black panel backgrounds (was #0c1210 / #0a0f0e)
+  surfaceInset:"#0c1210",
+  // Consolidated near-duplicate "selected/active" chip background (was #162032 / #111c2c)
+  selectedBg:"#162032", selectedBorder:"#2d3f52",
 };
 
 // ─── Components ───────────────────────────────────────────────────────────────
 function SignalBars({count}){
-  const col=count===4?"#f59e0b":count===3?"#6ee7b7":count===2?"#3b82f6":"#334155";
+  const col=count===4?"#f59e0b":count===3?"#6ee7b7":count===2?C.info:"#334155";
   return(<div style={{display:"flex",alignItems:"flex-end",gap:2}}>{[1,2,3,4].map(i=><div key={i} style={{width:5,height:4+i*4,background:i<=count?col:"#1c2825",borderRadius:1}}/>)}</div>);
 }
 
 function Tag({label,active,color,onClick}){
   const c=color||C.positive;
   return(
-    <button onClick={onClick} style={{fontSize:10,fontWeight:600,letterSpacing:"0.07em",padding:"3px 8px",borderRadius:4,border:`1px solid ${active?"#2d3f52":C.cardBorder}`,color:active?C.textDim:C.textMuted,background:active?"#162032":"transparent",display:"inline-flex",alignItems:"center",gap:4,cursor:"pointer",fontFamily:"inherit"}}>
+    <button onClick={onClick} style={{fontSize:10,fontWeight:600,letterSpacing:"0.07em",padding:"3px 8px",borderRadius:4,border:`1px solid ${active?C.selectedBorder:C.cardBorder}`,color:active?C.textDim:C.textMuted,background:active?C.selectedBg:"transparent",display:"inline-flex",alignItems:"center",gap:4,cursor:"pointer",fontFamily:"inherit"}}>
       {active&&<span style={{width:5,height:5,borderRadius:"50%",background:c,display:"inline-block"}}/>}
       {label}
       <span style={{fontSize:8,opacity:0.5}}>ⓘ</span>
@@ -547,8 +554,8 @@ function SignalExplainPanel({explain, expandedTag, onToggle}){
         const e = explain[key];
         const isOpen = expandedTag===key;
         return (
-          <div key={key} style={{marginBottom:6,border:`1px solid ${e.pass?"#2d3f52":C.cardBorder}`,borderRadius:8,overflow:"hidden"}}>
-            <button onClick={()=>onToggle(isOpen?null:key)} style={{width:"100%",textAlign:"left",background:e.pass?"#111c2c":"#0a0f0e",border:"none",padding:"8px 10px",cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center",fontFamily:"inherit"}}>
+          <div key={key} style={{marginBottom:6,border:`1px solid ${e.pass?C.selectedBorder:C.cardBorder}`,borderRadius:8,overflow:"hidden"}}>
+            <button onClick={()=>onToggle(isOpen?null:key)} style={{width:"100%",textAlign:"left",background:e.pass?C.selectedBg:C.surfaceInset,border:"none",padding:"8px 10px",cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center",fontFamily:"inherit"}}>
               <span style={{display:"flex",alignItems:"center",gap:6}}>
                 <span style={{width:6,height:6,borderRadius:"50%",background:e.pass?(key==="STEAM"?C.steam:C.positive):C.textMuted,display:"inline-block"}}/>
                 <span style={{fontSize:11,fontWeight:700,color:e.pass?C.text:C.textDim}}>{key}</span>
@@ -581,7 +588,7 @@ function ConsensusBar({consensus, lineMove}) {
   const steamDetected=lineMove?.hasData&&lineMove?.ml<-3;
 
   return (
-    <div style={{background:"#0a0f0e",borderRadius:8,padding:"10px 12px",marginBottom:10}}>
+    <div style={{background:C.surfaceInset,borderRadius:8,padding:"10px 12px",marginBottom:10}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
         <span style={{fontSize:9,color:C.textMuted,letterSpacing:"0.08em"}}>BOOK CONSENSUS</span>
         <span style={{fontSize:9,color:C.textMuted}}>{consensus.agree}/{consensus.total} books</span>
@@ -594,7 +601,7 @@ function ConsensusBar({consensus, lineMove}) {
 
       <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
         {/* Sharp consensus */}
-        <div style={{display:"flex",alignItems:"center",gap:5,background:allSharpAgree?"rgba(110,231,183,0.06)":"#0c1210",border:`1px solid ${allSharpAgree?C.positiveBorder:C.cardBorder}`,borderRadius:6,padding:"4px 8px"}}>
+        <div style={{display:"flex",alignItems:"center",gap:5,background:allSharpAgree?"rgba(110,231,183,0.06)":C.surfaceInset,border:`1px solid ${allSharpAgree?C.positiveBorder:C.cardBorder}`,borderRadius:6,padding:"4px 8px"}}>
           <span style={{fontSize:9,color:C.textMuted}}>SHARP</span>
           <span style={{fontSize:11,fontWeight:700,color:allSharpAgree?C.positive:C.textMuted}}>{consensus.sharpAgree}/{consensus.sharpTotal}</span>
           {allSharpAgree&&<span style={{fontSize:9,color:C.positive}}>✓</span>}
@@ -602,7 +609,7 @@ function ConsensusBar({consensus, lineMove}) {
 
         {/* Line movement */}
         {lineMove?.hasData && lineMove.ml!=null && (
-          <div style={{display:"flex",alignItems:"center",gap:5,background:steamDetected?C.steamBg:"#0c1210",border:`1px solid ${steamDetected?"rgba(248,113,113,0.25)":C.cardBorder}`,borderRadius:6,padding:"4px 8px"}}>
+          <div style={{display:"flex",alignItems:"center",gap:5,background:steamDetected?C.steamBg:C.surfaceInset,border:`1px solid ${steamDetected?C.steamBorder:C.cardBorder}`,borderRadius:6,padding:"4px 8px"}}>
             <span style={{fontSize:9,color:C.textMuted}}>ML</span>
             <span style={{fontSize:11,fontWeight:700,color:lineMove.ml<0?C.positive:lineMove.ml>0?"#f87171":C.textMuted}}>
               {lineMove.ml===0?"—":lineMove.ml<0?`↓ ${lineMove.ml}¢`:`↑ +${lineMove.ml}¢`}
@@ -613,7 +620,7 @@ function ConsensusBar({consensus, lineMove}) {
 
         {/* Total movement */}
         {lineMove?.hasData && lineMove.ou!=null && lineMove.ou!==0 && (
-          <div style={{display:"flex",alignItems:"center",gap:5,background:"#0c1210",border:`1px solid ${C.cardBorder}`,borderRadius:6,padding:"4px 8px"}}>
+          <div style={{display:"flex",alignItems:"center",gap:5,background:C.surfaceInset,border:`1px solid ${C.cardBorder}`,borderRadius:6,padding:"4px 8px"}}>
             <span style={{fontSize:9,color:C.textMuted}}>O/U</span>
             <span style={{fontSize:11,fontWeight:700,color:C.textDim}}>
               {lineMove.ou>0?`↑ +${lineMove.ou}`:` ↓ ${lineMove.ou}`}
@@ -722,11 +729,11 @@ function OptimalBadge({bet, impliedTotals}){
 
 function BetTabs({active,onChange,bets}){
   return(
-    <div style={{display:"flex",gap:3,background:"#0a0f0e",borderRadius:8,padding:3,marginBottom:12}}>
+    <div style={{display:"flex",gap:3,background:C.surfaceInset,borderRadius:8,padding:3,marginBottom:12}}>
       {["ML","SPREAD","O/U"].map(t=>{
         const isActive=active===t;
         const isOpt=bets[0]?.type===t;
-        return(<button key={t} onClick={()=>onChange(t)} style={{flex:1,padding:"6px 0",borderRadius:6,border:`1px solid ${isActive?"#2d3f52":"transparent"}`,background:isActive?"#162032":"transparent",color:isActive?C.text:isOpt?C.textDim:C.textMuted,fontSize:10,fontWeight:700,letterSpacing:"0.07em",cursor:"pointer",position:"relative"}}>
+        return(<button key={t} onClick={()=>onChange(t)} style={{flex:1,padding:"6px 0",borderRadius:6,border:`1px solid ${isActive?C.selectedBorder:"transparent"}`,background:isActive?C.selectedBg:"transparent",color:isActive?C.text:isOpt?C.textDim:C.textMuted,fontSize:10,fontWeight:700,letterSpacing:"0.07em",cursor:"pointer",position:"relative"}}>
           {t}{isOpt&&!isActive&&<span style={{position:"absolute",top:-3,right:4,width:5,height:5,borderRadius:"50%",background:C.accent,display:"block"}}/>}
         </button>);
       })}
@@ -738,7 +745,7 @@ function SideCard({label,pin,dk,isLean}){
   const e=(edge(pin,dk)*100).toFixed(1);
   const hasEdge=edge(pin,dk)>0;
   return(
-    <div style={{background:isLean?C.positiveBg:"#0c1210",border:`1px solid ${isLean?C.positiveBorder:C.cardBorder}`,borderRadius:7,padding:"9px 11px"}}>
+    <div style={{background:isLean?C.positiveBg:C.surfaceInset,border:`1px solid ${isLean?C.positiveBorder:C.cardBorder}`,borderRadius:7,padding:"9px 11px"}}>
       <div style={{fontSize:9,color:isLean?C.positive:C.textMuted,marginBottom:6}}>{isLean?"◄ ":""}{label}</div>
       <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}><span style={{fontSize:9,color:C.textMuted}}>PIN</span><span style={{fontSize:13,fontWeight:700,fontFamily:"monospace",color:isLean?C.text:C.textDim}}>{fmt(pin)}</span></div>
       <div style={{display:"flex",justifyContent:"space-between",marginBottom:5}}><span style={{fontSize:9,color:C.textMuted}}>DK</span><span style={{fontSize:13,fontWeight:700,fontFamily:"monospace",color:isLean?C.positive:C.textDim}}>{fmt(dk)}</span></div>
@@ -812,13 +819,13 @@ function ImpliedTotalsRow({impliedTotals, leanTeam, dogTeam}) {
   if (!impliedTotals) return null;
   const {fav, dog, dogUnderpricedFlag, dogMildFlag} = impliedTotals;
   const dogColor = dogUnderpricedFlag ? "#f87171" : dogMildFlag ? "#f59e0b" : C.textDim;
-  const dogBg    = dogUnderpricedFlag ? "rgba(248,113,113,0.06)" : dogMildFlag ? "rgba(245,158,11,0.06)" : "#0c1210";
-  const dogBorder= dogUnderpricedFlag ? "rgba(248,113,113,0.25)" : dogMildFlag ? "rgba(245,158,11,0.25)" : C.cardBorder;
+  const dogBg    = dogUnderpricedFlag ? "rgba(248,113,113,0.06)" : dogMildFlag ? "rgba(245,158,11,0.06)" : C.surfaceInset;
+  const dogBorder= dogUnderpricedFlag ? C.steamBorder : dogMildFlag ? "rgba(245,158,11,0.25)" : C.cardBorder;
   return (
     <div style={{marginBottom:10}}>
       <div style={{fontSize:9,color:C.textMuted,letterSpacing:"0.08em",marginBottom:6}}>IMPLIED TEAM TOTALS</div>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-        <div style={{background:"#0c1210",border:`1px solid ${C.cardBorder}`,borderRadius:7,padding:"8px 11px"}}>
+        <div style={{background:C.surfaceInset,border:`1px solid ${C.cardBorder}`,borderRadius:7,padding:"8px 11px"}}>
           <div style={{fontSize:9,color:C.positive,marginBottom:4}}>▲ FAV · {leanTeam}</div>
           <div style={{fontFamily:"monospace",fontSize:20,fontWeight:800,color:C.text}}>{fav}</div>
           <div style={{fontSize:8,color:C.textMuted,marginTop:3}}>(Total + Spread) / 2</div>
@@ -848,7 +855,7 @@ function BookPriceInput({pinPrice, dkPrice, label, value, onChange}) {
   const hasEdge   = myEdge != null && parseFloat(myEdge) > 0;
 
   return (
-    <div style={{marginTop:12,background:"#0a0f0e",border:`1px solid ${hasGain?"rgba(110,231,183,0.2)":C.cardBorder}`,borderRadius:8,padding:"10px 12px"}}>
+    <div style={{marginTop:12,background:C.surfaceInset,border:`1px solid ${hasGain?"rgba(110,231,183,0.2)":C.cardBorder}`,borderRadius:8,padding:"10px 12px"}}>
       <div style={{fontSize:9,color:C.textMuted,letterSpacing:"0.08em",marginBottom:8}}>YOUR BOOK · {label}</div>
       <div style={{display:"flex",gap:8,alignItems:"center",marginBottom: valid ? 10 : 0}}>
         <input
@@ -858,7 +865,7 @@ function BookPriceInput({pinPrice, dkPrice, label, value, onChange}) {
           onChange={e=>onChange(e.target.value)}
           className="app-focusable"
           style={{
-            flex:1, background:"#0c1210", border:`1px solid ${valid?C.positiveBorder:C.cardBorder}`,
+            flex:1, background:C.surfaceInset, border:`1px solid ${valid?C.positiveBorder:C.cardBorder}`,
             borderRadius:6, color:C.text, fontSize:13, fontWeight:700,
             fontFamily:"monospace", padding:"6px 10px", outline:"none",
             caretColor:C.positive,
@@ -870,12 +877,12 @@ function BookPriceInput({pinPrice, dkPrice, label, value, onChange}) {
       </div>
       {valid && (
         <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-          <div style={{background:"#0c1210",border:`1px solid ${C.cardBorder}`,borderRadius:5,padding:"4px 8px"}}>
+          <div style={{background:C.surfaceInset,border:`1px solid ${C.cardBorder}`,borderRadius:5,padding:"4px 8px"}}>
             <span style={{fontSize:8,color:C.textMuted}}>BREAKEVEN </span>
             <span style={{fontSize:10,fontWeight:700,fontFamily:"monospace",color:C.textDim}}>{breakeven}%</span>
           </div>
           {dkEdge != null && (
-            <div style={{background:"#0c1210",border:`1px solid ${C.cardBorder}`,borderRadius:5,padding:"4px 8px"}}>
+            <div style={{background:C.surfaceInset,border:`1px solid ${C.cardBorder}`,borderRadius:5,padding:"4px 8px"}}>
               <span style={{fontSize:8,color:C.textMuted}}>DK EDGE </span>
               <span style={{fontSize:10,fontWeight:700,fontFamily:"monospace",color:C.textDim}}>{parseFloat(dkEdge)>0?`+${dkEdge}%`:`${dkEdge}%`}</span>
             </div>
@@ -951,7 +958,7 @@ function SPBadge({spFlag, optimalType}) {
     const dOff = spFlag.dogOff  ? `Off #${spFlag.dogOff}`  : "";
     const dDef = spFlag.dogDef  ? `Def #${spFlag.dogDef}`  : "";
     rows.push(
-      <div key="info" style={{background:"#0a0f0e",border:`1px solid ${C.cardBorder}`,borderRadius:7,padding:"5px 10px",marginBottom:6,display:"flex",gap:16,alignItems:"center"}}>
+      <div key="info" style={{background:C.surfaceInset,border:`1px solid ${C.cardBorder}`,borderRadius:7,padding:"5px 10px",marginBottom:6,display:"flex",gap:16,alignItems:"center"}}>
         <span style={{fontSize:8,color:C.textMuted,letterSpacing:"0.07em"}}>SP+</span>
         {(lOff||lDef) && <span style={{fontSize:8,color:C.textDim}}><strong>{spFlag.leanName}</strong> {[lOff,lDef].filter(Boolean).join(" · ")}</span>}
         {(dOff||dDef) && <span style={{fontSize:8,color:C.textMuted}}><strong>{spFlag.dogName}</strong> {[dOff,dDef].filter(Boolean).join(" · ")}</span>}
@@ -1002,11 +1009,11 @@ function BetLogPanel({log, onDelete, onClose}) {
                 <button onClick={()=>onDelete(b.id)} style={{background:"transparent",border:"none",color:C.textMuted,fontSize:12,cursor:"pointer",padding:"0 4px"}}>✕</button>
               </div>
               <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-                <div style={{background:"#0a0f0e",border:`1px solid ${C.cardBorder}`,borderRadius:5,padding:"3px 8px"}}>
+                <div style={{background:C.surfaceInset,border:`1px solid ${C.cardBorder}`,borderRadius:5,padding:"3px 8px"}}>
                   <span style={{fontSize:8,color:C.textMuted}}>ENTRY </span>
                   <span style={{fontSize:10,fontFamily:"monospace",fontWeight:700,color:C.text}}>{fmt(b.entryOdds)}</span>
                 </div>
-                {b.pinAtEntry && <div style={{background:"#0a0f0e",border:`1px solid ${C.cardBorder}`,borderRadius:5,padding:"3px 8px"}}>
+                {b.pinAtEntry && <div style={{background:C.surfaceInset,border:`1px solid ${C.cardBorder}`,borderRadius:5,padding:"3px 8px"}}>
                   <span style={{fontSize:8,color:C.textMuted}}>PIN @ ENTRY </span>
                   <span style={{fontSize:10,fontFamily:"monospace",fontWeight:700,color:C.textDim}}>{fmt(b.pinAtEntry)}</span>
                 </div>}
@@ -1014,7 +1021,7 @@ function BetLogPanel({log, onDelete, onClose}) {
                   <span style={{fontSize:8,color:C.textMuted}}>CLV </span>
                   <span style={{fontSize:10,fontFamily:"monospace",fontWeight:700,color:clvColor}}>{clvNum>0?`+${clv}%`:`${clv}%`}</span>
                 </div>}
-                {b.stake && <div style={{background:"#0a0f0e",border:`1px solid ${C.cardBorder}`,borderRadius:5,padding:"3px 8px"}}>
+                {b.stake && <div style={{background:C.surfaceInset,border:`1px solid ${C.cardBorder}`,borderRadius:5,padding:"3px 8px"}}>
                   <span style={{fontSize:8,color:C.textMuted}}>STAKE </span>
                   <span style={{fontSize:10,fontFamily:"monospace",fontWeight:700,color:C.textDim}}>${b.stake}</span>
                 </div>}
@@ -1042,7 +1049,7 @@ function LiveView({game}) {
   return (
     <div>
       <div style={{background:"rgba(74,222,128,0.05)",border:"1px solid rgba(74,222,128,0.15)",borderRadius:7,padding:"6px 10px",marginBottom:10,display:"flex",gap:6,alignItems:"center"}}>
-        <span style={{fontSize:9,color:"#4ade80"}}>● LIVE</span>
+        <span style={{fontSize:9,color:C.live}}>● LIVE</span>
         <span style={{fontSize:8,color:C.textMuted}}>Line movement reflects game score — not sharp pre-game action. Edge vs Pinnacle still valid for live bet value.</span>
       </div>
       <div style={{display:"grid",gridTemplateColumns:"60px 1fr 1fr 60px",gap:6,marginBottom:6}}>
@@ -1063,14 +1070,14 @@ function LiveView({game}) {
           </div>
           <div>
             {r.move != null && r.move !== 0 ? (
-              <span style={{fontSize:10,fontWeight:700,fontFamily:"monospace",color:r.move<0?"#4ade80":"#f87171"}}>
+              <span style={{fontSize:10,fontWeight:700,fontFamily:"monospace",color:r.move<0?C.live:"#f87171"}}>
                 {r.move>0?`+${r.move}`:r.move}
               </span>
             ) : <span style={{fontSize:10,color:C.textMuted}}>—</span>}
           </div>
         </div>
       ))}
-      <div style={{marginTop:8,padding:"6px 8px",background:"#0a0f0e",border:`1px solid ${C.cardBorder}`,borderRadius:6}}>
+      <div style={{marginTop:8,padding:"6px 8px",background:C.surfaceInset,border:`1px solid ${C.cardBorder}`,borderRadius:6}}>
         <div style={{fontSize:8,color:C.textMuted}}>LIVE EDGE vs PIN (DK) · {leanDisp} ML</div>
         <div style={{fontFamily:"monospace",fontSize:13,fontWeight:700,color:C.positive,marginTop:2}}>
           {lh ? fmt(ml.home_dk) : fmt(ml.away_dk)} <span style={{fontSize:9,color:C.textMuted}}>DK</span>
@@ -1187,7 +1194,7 @@ function NFLResearchPanel({game, analysis, explain}){
         </div>
       )}
       {ai && (
-        <div style={{background:"#0a0f0e",border:`1px solid ${C.accentBorder}`,borderRadius:8,padding:"10px 12px",marginTop:4}}>
+        <div style={{background:C.surfaceInset,border:`1px solid ${C.accentBorder}`,borderRadius:8,padding:"10px 12px",marginTop:4}}>
           <div style={{fontSize:9,color:C.accent,fontWeight:700,letterSpacing:"0.07em",marginBottom:6}}>✦ AI ANALYSIS</div>
           <div style={{fontSize:11,color:C.textDim,lineHeight:1.6,whiteSpace:"pre-wrap"}}>{ai}</div>
         </div>
@@ -1219,7 +1226,7 @@ function GameCard({rawGame, onLogBet, spRatings={}, sport}){
         <div>
           <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:4}}>
             <span style={{fontSize:9,color:C.textMuted,letterSpacing:"0.06em"}}>{rawGame.time}</span>
-            {isLive && <span style={{fontSize:8,fontWeight:700,color:"#4ade80",background:"rgba(74,222,128,0.1)",border:"1px solid rgba(74,222,128,0.3)",borderRadius:3,padding:"1px 5px",letterSpacing:"0.06em"}}>● LIVE</span>}
+            {isLive && <span style={{fontSize:8,fontWeight:700,color:C.live,background:C.liveBg,border:`1px solid ${C.liveBorder}`,borderRadius:3,padding:"1px 5px",letterSpacing:"0.06em"}}>● LIVE</span>}
           </div>
           <div style={{display:"flex",alignItems:"center",gap:8}}>
             <span style={{fontSize:18,fontWeight:800,fontFamily:"monospace",color:!lh?C.lean:C.nonLean}}>{rawGame.awayDisplay}</span>
@@ -1230,7 +1237,7 @@ function GameCard({rawGame, onLogBet, spRatings={}, sport}){
         <div style={{textAlign:"right"}}>
           <div style={{fontSize:11,color:C.textDim,fontFamily:"monospace",marginBottom:5}}>◄ {lh?rawGame.homeDisplay:rawGame.awayDisplay} {fmt(mlP)}</div>
           <div style={{display:"flex",alignItems:"center",gap:6,justifyContent:"flex-end"}}>
-            {steamDetected&&<span style={{fontSize:8,color:C.steam,background:C.steamBg,border:"1px solid rgba(248,113,113,0.25)",borderRadius:3,padding:"2px 5px"}}>🔥 STEAM</span>}
+            {steamDetected&&<span style={{fontSize:8,color:C.steam,background:C.steamBg,border:`1px solid ${C.steamBorder}`,borderRadius:3,padding:"2px 5px"}}>🔥 STEAM</span>}
             <span style={{fontSize:8,color:C.textMuted,background:"#0f1614",border:`1px solid ${C.cardBorder}`,borderRadius:3,padding:"2px 5px"}}>MACRO AUTO</span>
             <SignalBars count={sig}/>
             <span style={{fontSize:9,color:sig===4?"#f59e0b":C.textDim}}>{sig}/4</span>
@@ -1273,7 +1280,7 @@ function GameCard({rawGame, onLogBet, spRatings={}, sport}){
         </button>
       )}
       {showLogForm && (
-        <div style={{background:"#0a0f0e",border:`1px solid ${C.positiveBorder}`,borderRadius:8,padding:"10px 12px",marginBottom:10}}>
+        <div style={{background:C.surfaceInset,border:`1px solid ${C.positiveBorder}`,borderRadius:8,padding:"10px 12px",marginBottom:10}}>
           <div style={{fontSize:9,color:C.positive,fontWeight:700,letterSpacing:"0.07em",marginBottom:8}}>LOG BET · {optimal?.label}</div>
           <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:8}}>
             <div style={{flex:1}}>
@@ -1285,7 +1292,7 @@ function GameCard({rawGame, onLogBet, spRatings={}, sport}){
               <div style={{fontSize:8,color:C.textMuted,marginBottom:3}}>STAKE ($)</div>
               <input type="number" placeholder="e.g. 20" value={logStake} onChange={e=>setLogStake(e.target.value)}
                 className="app-focusable"
-                style={{width:"100%",background:"#0c1210",border:`1px solid ${C.cardBorder}`,borderRadius:6,color:C.text,fontSize:12,fontWeight:700,padding:"5px 8px",outline:"none",boxSizing:"border-box"}}/>
+                style={{width:"100%",background:C.surfaceInset,border:`1px solid ${C.cardBorder}`,borderRadius:6,color:C.text,fontSize:12,fontWeight:700,padding:"5px 8px",outline:"none",boxSizing:"border-box"}}/>
             </div>
           </div>
           <div style={{display:"flex",gap:6}}>
@@ -1311,9 +1318,9 @@ function GameCard({rawGame, onLogBet, spRatings={}, sport}){
         <button
           onClick={()=>setTab(tab==="LIVE" ? "ML" : "LIVE")}
           style={{width:"100%",padding:"8px 0",borderRadius:8,
-            border: tab==="LIVE" ? "2px solid #4ade80" : "2px solid rgba(74,222,128,0.25)",
+            border: tab==="LIVE" ? `2px solid ${C.live}` : "2px solid rgba(74,222,128,0.25)",
             background: tab==="LIVE" ? "rgba(74,222,128,0.08)" : "transparent",
-            color: tab==="LIVE" ? "#4ade80" : "rgba(74,222,128,0.5)",
+            color: tab==="LIVE" ? C.live : "rgba(74,222,128,0.5)",
             fontSize:11,fontWeight:800,letterSpacing:"0.1em",cursor:"pointer"}}>
           {tab==="LIVE" ? "● LIVE LINES  ✕ CLOSE" : "● VIEW LIVE LINES →"}
         </button>
@@ -1424,7 +1431,7 @@ export default function App(){
 
         <div style={{display:"flex",gap:4,marginBottom:10,overflowX:"auto",paddingBottom:2}}>
           {SPORTS.map(s=>(
-            <button key={s.key} onClick={()=>setSport(s.key)} style={{padding:"5px 12px",borderRadius:20,whiteSpace:"nowrap",border:`1px solid ${sport===s.key?"#2d3f52":C.cardBorder}`,background:sport===s.key?"#162032":"transparent",color:sport===s.key?C.text:C.textMuted,fontSize:11,fontWeight:600,cursor:"pointer",position:"relative"}}>
+            <button key={s.key} onClick={()=>setSport(s.key)} style={{padding:"5px 12px",borderRadius:20,whiteSpace:"nowrap",border:`1px solid ${sport===s.key?C.selectedBorder:C.cardBorder}`,background:sport===s.key?C.selectedBg:"transparent",color:sport===s.key?C.text:C.textMuted,fontSize:11,fontWeight:600,cursor:"pointer",position:"relative"}}>
               {s.emoji} {s.label}
               {games[s.key]?.length>0&&sport!==s.key&&<span style={{position:"absolute",top:-3,right:-2,width:5,height:5,borderRadius:"50%",background:"#6ee7b7",display:"block"}}/>}
             </button>
@@ -1446,13 +1453,13 @@ export default function App(){
 
         <div style={{display:"flex",gap:4,marginBottom:8}}>
           {[1,2,3,4].map(n=>(
-            <button key={n} onClick={()=>setSigFilter(n)} style={{padding:"4px 12px",borderRadius:20,border:`1px solid ${sigFilter===n?"#2d3f52":C.cardBorder}`,background:sigFilter===n?"#162032":"transparent",color:sigFilter===n?C.text:C.textMuted,fontSize:10,fontWeight:600,cursor:"pointer"}}>Signal {n}+</button>
+            <button key={n} onClick={()=>setSigFilter(n)} style={{padding:"4px 12px",borderRadius:20,border:`1px solid ${sigFilter===n?C.selectedBorder:C.cardBorder}`,background:sigFilter===n?C.selectedBg:"transparent",color:sigFilter===n?C.text:C.textMuted,fontSize:10,fontWeight:600,cursor:"pointer"}}>Signal {n}+</button>
           ))}
         </div>
 
         <div style={{display:"flex",gap:6,alignItems:"center"}}>
           <span style={{fontSize:9,color:C.textMuted,letterSpacing:"0.06em"}}>SORT</span>
-          <select value={sortBy} onChange={e=>setSortBy(e.target.value)} className="app-focusable" style={{background:"#0c1210",border:`1px solid ${C.cardBorder}`,borderRadius:6,color:C.textDim,fontSize:10,padding:"3px 8px",cursor:"pointer",outline:"none"}}>
+          <select value={sortBy} onChange={e=>setSortBy(e.target.value)} className="app-focusable" style={{background:C.surfaceInset,border:`1px solid ${C.cardBorder}`,borderRadius:6,color:C.textDim,fontSize:10,padding:"3px 8px",cursor:"pointer",outline:"none"}}>
             <option value="edge">Edge vs Pinnacle</option>
             <option value="time">Start Time</option>
           </select>
@@ -1463,7 +1470,7 @@ export default function App(){
       </div>
 
       <div style={{padding:"8px 14px",display:"flex",gap:14,borderBottom:`1px solid ${C.cardBorder}`,flexWrap:"wrap"}}>
-        {[["#f59e0b","4/4 Max"],["#6ee7b7","3/4 High"],["#3b82f6","2/4 Dev"],["#334155","1/4 Watch"],["#f87171","🔥 Steam"]].map(([c,l])=>(
+        {[["#f59e0b","4/4 Max"],["#6ee7b7","3/4 High"],[C.info,"2/4 Dev"],["#334155","1/4 Watch"],["#f87171","🔥 Steam"]].map(([c,l])=>(
           <span key={l} style={{fontSize:9,color:C.textMuted,display:"flex",alignItems:"center",gap:4}}>
             <span style={{width:6,height:6,borderRadius:"50%",background:c,display:"inline-block"}}/>{l}
           </span>
@@ -1481,15 +1488,15 @@ export default function App(){
         )}
         {err&&!isLoading&&cur.length===0&&(
           <div style={{margin:16,background:"rgba(239,68,68,0.06)",border:"1px solid rgba(239,68,68,0.2)",borderRadius:10,padding:16}}>
-            <div style={{fontSize:11,color:"#ef4444",fontWeight:700,marginBottom:6}}>⚠ ERROR</div>
+            <div style={{fontSize:11,color:C.danger,fontWeight:700,marginBottom:6}}>⚠ ERROR</div>
             <div style={{fontSize:10,color:C.textDim,marginBottom:12}}>{err}</div>
             <button onClick={()=>load(sport)} style={{background:"transparent",border:`1px solid ${C.cardBorder}`,color:C.textDim,fontSize:10,fontWeight:600,borderRadius:6,padding:"6px 16px",cursor:"pointer"}}>RETRY</button>
           </div>
         )}
         {err&&!isLoading&&cur.length>0&&(
-          <div style={{margin:"0 6px 10px",background:"rgba(234,179,8,0.06)",border:"1px solid rgba(234,179,8,0.2)",borderRadius:8,padding:"8px 12px",display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,flexWrap:"wrap"}}>
-            <div style={{fontSize:10,color:"#eab308"}}>Showing cached data{upd?.time?` from ${upd.time}`:""} — live refresh failed ({err})</div>
-            <button onClick={()=>load(sport,true)} style={{background:"transparent",border:"1px solid rgba(234,179,8,0.3)",color:"#eab308",fontSize:9,fontWeight:600,borderRadius:6,padding:"4px 10px",cursor:"pointer",whiteSpace:"nowrap"}}>RETRY</button>
+          <div style={{margin:"0 6px 10px",background:C.warningBg,border:`1px solid ${C.warningBorder}`,borderRadius:8,padding:"8px 12px",display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,flexWrap:"wrap"}}>
+            <div style={{fontSize:10,color:C.warning}}>Showing cached data{upd?.time?` from ${upd.time}`:""} — live refresh failed ({err})</div>
+            <button onClick={()=>load(sport,true)} style={{background:"transparent",border:`1px solid ${C.warningBorder}`,color:C.warning,fontSize:9,fontWeight:600,borderRadius:6,padding:"4px 10px",cursor:"pointer",whiteSpace:"nowrap"}}>RETRY</button>
           </div>
         )}
         {!isLoading&&(!err||cur.length>0)&&sorted.length===0&&cur.length>0&&<div style={{textAlign:"center",padding:"40px 0",color:C.textMuted,fontSize:11}}>No games at Signal {sigFilter}+ — try lowering the filter</div>}
