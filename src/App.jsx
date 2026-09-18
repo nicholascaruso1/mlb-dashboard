@@ -340,24 +340,42 @@ async function fetchLiveOdds(sport) {
 // ─── Math ─────────────────────────────────────────────────────────────────────
 function toDec(a){if(!a||isNaN(Number(a)))return 2;const n=Number(a);return n>0?n/100+1:100/Math.abs(n)+1;}
 function iProb(a){if(!a)return 0.5;return 1/toDec(a);}
-function edge(p,d){if(!p||!d)return 0;return iProb(p)*toDec(d)-1;}
+// Raw implied probability includes the book's vig/overround and does NOT sum to 1
+// across the two sides of a market. devigProb removes that overround (multiplicative
+// method: normalize both sides' raw implied probabilities so they sum to 1) so the
+// result approximates the market's true probability rather than true-probability-plus-vig.
+// Falls back to raw iProb when the opposite side's price isn't available.
+function devigProb(pLean, pOther){
+  const rl = iProb(pLean);
+  if (pOther == null) return rl;
+  const ro = iProb(pOther);
+  const sum = rl + ro;
+  return sum > 0 ? rl / sum : rl;
+}
+// edge() now devigs the Pinnacle side before computing edge whenever the opposite
+// side's Pinnacle price (pOther) is supplied. Callers that omit pOther fall back to
+// the old raw-probability behavior — every call site below has been updated to pass it.
+function edge(p,d,pOther){if(!p||!d)return 0;return devigProb(p,pOther)*toDec(d)-1;}
 function fmt(n){if(n==null||isNaN(Number(n)))return "—";const x=Number(n);return x>0?`+${x}`:`${x}`;}
 
 function analyze(game, spRatings = {}) {
   const lh=game.lean===game.home;
   const ml=game.ml||{},sp=game.spread||{},ou=game.ou||{};
-  const mlP=lh?ml.home_pin:ml.away_pin, mlD=lh?ml.home_dk:ml.away_dk;
-  const spP=lh?sp.home_pin:sp.away_pin, spD=lh?sp.home_dk:sp.away_dk, spL=lh?sp.home_line:sp.away_line;
-  const oe=edge(ou.over_pin,ou.over_dk), ue=edge(ou.under_pin,ou.under_dk);
+  const mlP=lh?ml.home_pin:ml.away_pin, mlD=lh?ml.home_dk:ml.away_dk, mlOppP=lh?ml.away_pin:ml.home_pin;
+  const spP=lh?sp.home_pin:sp.away_pin, spD=lh?sp.home_dk:sp.away_dk, spL=lh?sp.home_line:sp.away_line, spOppP=lh?sp.away_pin:sp.home_pin;
+  const oe=edge(ou.over_pin,ou.over_dk,ou.under_pin), ue=edge(ou.under_pin,ou.under_dk,ou.over_pin);
   const ouSide=oe>=ue?"OVER":"UNDER";
   const leanDisp = lh ? (game.homeDisplay||game.home) : (game.awayDisplay||game.away);
   const bets=[
-    {type:"ML",     edge:edge(mlP,mlD), label:`${leanDisp} ML`,                          dk:mlD,pin:mlP},
-    {type:"SPREAD", edge:edge(spP,spD), label:`${leanDisp} ${spL>0?"+":""}${spL}`,       dk:spD,pin:spP},
+    {type:"ML",     edge:edge(mlP,mlD,mlOppP), label:`${leanDisp} ML`,                          dk:mlD,pin:mlP},
+    {type:"SPREAD", edge:edge(spP,spD,spOppP), label:`${leanDisp} ${spL>0?"+":""}${spL}`,       dk:spD,pin:spP},
     {type:"O/U",    edge:Math.max(oe,ue),label:`${ouSide} ${ou.total}`,                  dk:ouSide==="OVER"?ou.over_dk:ou.under_dk,pin:ouSide==="OVER"?ou.over_pin:ou.under_pin},
   ];
   bets.sort((a,b)=>b.edge-a.edge);
-  const impl=iProb(mlP);
+  // impl is the Macro/Market anchor probability (drives the 52%/54% tag thresholds and
+  // the sig confluence score below) — devig it against the opposite ML side so it isn't
+  // inflated by Pinnacle's vig.
+  const impl=devigProb(mlP,mlOppP);
   const con=game.consensus||{};
   const conScore=con.total>0?con.agree/con.total:0;
   const sharpScore=con.sharpTotal>0?con.sharpAgree/con.sharpTotal:0;
@@ -762,9 +780,9 @@ function BetTabs({active,onChange,bets}){
   );
 }
 
-function SideCard({label,pin,dk,isLean}){
-  const e=(edge(pin,dk)*100).toFixed(1);
-  const hasEdge=edge(pin,dk)>0;
+function SideCard({label,pin,dk,oppPin,isLean}){
+  const e=(edge(pin,dk,oppPin)*100).toFixed(1);
+  const hasEdge=edge(pin,dk,oppPin)>0;
   return(
     <div style={{background:isLean?C.positiveBg:C.surfaceInset,border:`1px solid ${isLean?C.positiveBorder:C.cardBorder}`,borderRadius:R.sm,padding:"9px 11px"}}>
       <div style={{fontSize:9,color:isLean?C.positive:C.textMuted,marginBottom:6}}>{isLean?"◄ ":""}{label}</div>
@@ -812,10 +830,10 @@ function MLView({game, mlVacuum, myPrice, onMyPriceChange}){
         </div>
         <div>
           <div style={{fontSize:9,color:C.textMuted,marginBottom:5}}>IMPLIED</div>
-          <div style={{fontFamily:"monospace",fontSize:16,fontWeight:700,color:C.text,marginTop:8}}>{(iProb(leanPin)*100).toFixed(1)}%</div>
+          <div style={{fontFamily:"monospace",fontSize:16,fontWeight:700,color:C.text,marginTop:8}}>{(devigProb(leanPin, lh?ml.away_pin:ml.home_pin)*100).toFixed(1)}%</div>
         </div>
       </div>
-      <BookPriceInput pinPrice={leanPin} dkPrice={leanDk} label={`${lh?game.homeDisplay||game.home:game.awayDisplay||game.away} ML`} value={myPrice} onChange={onMyPriceChange}/>
+      <BookPriceInput pinPrice={leanPin} dkPrice={leanDk} oppPin={lh?ml.away_pin:ml.home_pin} label={`${lh?game.homeDisplay||game.home:game.awayDisplay||game.away} ML`} value={myPrice} onChange={onMyPriceChange}/>
     </div>
   );
 }
@@ -829,10 +847,10 @@ function SpreadView({game, myPrice, onMyPriceChange}){
   const leanDisp = lh?homeDisp:awayDisp;
   return(<div>
     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-      <SideCard label={`${awayDisp} ${fmt(sp.away_line)}`} pin={sp.away_pin} dk={sp.away_dk} isLean={!lh}/>
-      <SideCard label={`${homeDisp} ${fmt(sp.home_line)}`} pin={sp.home_pin} dk={sp.home_dk} isLean={lh}/>
+      <SideCard label={`${awayDisp} ${fmt(sp.away_line)}`} pin={sp.away_pin} dk={sp.away_dk} oppPin={sp.home_pin} isLean={!lh}/>
+      <SideCard label={`${homeDisp} ${fmt(sp.home_line)}`} pin={sp.home_pin} dk={sp.home_dk} oppPin={sp.away_pin} isLean={lh}/>
     </div>
-    <BookPriceInput pinPrice={leanPin} dkPrice={leanDk} label={`${leanDisp} ${leanLine>0?"+":""}${leanLine}`} value={myPrice} onChange={onMyPriceChange}/>
+    <BookPriceInput pinPrice={leanPin} dkPrice={leanDk} oppPin={lh?sp.away_pin:sp.home_pin} label={`${leanDisp} ${leanLine>0?"+":""}${leanLine}`} value={myPrice} onChange={onMyPriceChange}/>
   </div>);
 }
 // ─── Implied Totals Row ───────────────────────────────────────────────────────
@@ -864,12 +882,12 @@ function ImpliedTotalsRow({impliedTotals, leanTeam, dogTeam}) {
 }
 
 // ─── Your Book Price Input ────────────────────────────────────────────────────
-function BookPriceInput({pinPrice, dkPrice, label, value, onChange}) {
+function BookPriceInput({pinPrice, dkPrice, oppPin, label, value, onChange}) {
   const raw = value.trim();
   const parsed = raw === "" ? null : raw.startsWith("+") ? parseInt(raw) : parseInt(raw);
   const valid  = parsed != null && !isNaN(parsed) && parsed !== 0 && !(parsed > -100 && parsed < 100);
-  const myEdge    = valid ? (edge(pinPrice, parsed) * 100).toFixed(2) : null;
-  const dkEdge    = dkPrice ? (edge(pinPrice, dkPrice) * 100).toFixed(2) : null;
+  const myEdge    = valid ? (edge(pinPrice, parsed, oppPin) * 100).toFixed(2) : null;
+  const dkEdge    = dkPrice ? (edge(pinPrice, dkPrice, oppPin) * 100).toFixed(2) : null;
   const clvDelta  = (valid && dkEdge != null) ? (parseFloat(myEdge) - parseFloat(dkEdge)).toFixed(2) : null;
   const breakeven = valid ? (iProb(parsed) * 100).toFixed(1) : null;
   const hasGain   = clvDelta != null && parseFloat(clvDelta) > 0;
@@ -922,21 +940,22 @@ function BookPriceInput({pinPrice, dkPrice, label, value, onChange}) {
 
 function OUView({game, impliedTotals, myPrice, onMyPriceChange}){
   const ou=game.ou||{};
-  const oe=edge(ou.over_pin,ou.over_dk),ue=edge(ou.under_pin,ou.under_dk);
+  const oe=edge(ou.over_pin,ou.over_dk,ou.under_pin),ue=edge(ou.under_pin,ou.under_dk,ou.over_pin);
   const best=oe>=ue?"OVER":"UNDER";
   const lh=game.lean===game.home;
   const awayDisp=game.awayDisplay||game.away;
   const homeDisp=game.homeDisplay||game.home;
   const bestPin = best==="OVER" ? ou.over_pin : ou.under_pin;
   const bestDk  = best==="OVER" ? ou.over_dk  : ou.under_dk;
+  const bestOppPin = best==="OVER" ? ou.under_pin : ou.over_pin;
   return(<div>
     <div style={{fontSize:9,color:C.textMuted,marginBottom:8}}>TOTAL <span style={{fontSize:20,color:C.text,fontFamily:"monospace",fontWeight:700,marginLeft:6}}>{ou.total}</span></div>
     <ImpliedTotalsRow impliedTotals={impliedTotals} leanTeam={lh?homeDisp:awayDisp} dogTeam={lh?awayDisp:homeDisp}/>
     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-      <SideCard label={`OVER ${ou.total}`}  pin={ou.over_pin}  dk={ou.over_dk}  isLean={best==="OVER"}/>
-      <SideCard label={`UNDER ${ou.total}`} pin={ou.under_pin} dk={ou.under_dk} isLean={best==="UNDER"}/>
+      <SideCard label={`OVER ${ou.total}`}  pin={ou.over_pin}  dk={ou.over_dk}  oppPin={ou.under_pin} isLean={best==="OVER"}/>
+      <SideCard label={`UNDER ${ou.total}`} pin={ou.under_pin} dk={ou.under_dk} oppPin={ou.over_pin}  isLean={best==="UNDER"}/>
     </div>
-    <BookPriceInput pinPrice={bestPin} dkPrice={bestDk} label={`${best} ${ou.total}`} value={myPrice} onChange={onMyPriceChange}/>
+    <BookPriceInput pinPrice={bestPin} dkPrice={bestDk} oppPin={bestOppPin} label={`${best} ${ou.total}`} value={myPrice} onChange={onMyPriceChange}/>
   </div>);
 }
 
