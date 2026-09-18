@@ -553,10 +553,6 @@ function analyze(game, spRatings = {}, sport, macroRest = {}) {
     dogMildFlag: ((ou.total - spreadMag) / 2) < 15 && spreadMag > 14,
   } : null;
 
-  // Enhanced signal using consensus (MARKET tag softened when ML vacuum active)
-  const sig = impl>0.60&&bets[0].edge>0.03&&sharpScore>=1.0 ? 4
-            : impl>0.54&&bets[0].edge>0.01&&conScore>=0.6   ? 3
-            : impl>0.51&&conScore>=0.5                       ? 2 : 1;
   const gap=Math.abs(toDec(mlP)-toDec(mlD));
   const gameIsLive = game.commenceTime ? new Date(game.commenceTime).getTime() < Date.now() : false;
   const lm = gameIsLive ? { hasData: false } : (game.lineMove || {});
@@ -606,6 +602,21 @@ function analyze(game, spRatings = {}, sport, macroRest = {}) {
     VALUE:   bets[0].edge>0.01,
     STEAM:   lm.windowMove != null && lm.windowMove <= -STEAM_CENTS_THRESHOLD,
   };
+
+  // ── Signal strength: distinct evidence families, not a raw tag count ──────────
+  // MARKET, CONFIRM, and VALUE all key off the same underlying thing — how hard
+  // Pinnacle is leaning and how far DK's price sits from it. A single sharp move
+  // routinely lights up all three at once, so counting them as 3 independent
+  // confirmations (the old "X/4" badge, which didn't even read this tags object)
+  // materially overstated confluence. They're collapsed into one "market cluster"
+  // family here; MACRO (real rest data for NFL/NCAAF) and STEAM (now genuinely
+  // time-gated — see getWindowedMove) are the two signals that are actually
+  // measuring something different from that same underlying price move, so they
+  // still count separately. Max distinct families is 3, not 4.
+  const marketClusterPasses = [tags.MARKET, tags.CONFIRM, tags.VALUE].filter(Boolean).length;
+  const distinctSignals = (tags.MACRO?1:0) + (marketClusterPasses>0?1:0) + (tags.STEAM?1:0);
+  const sig = Math.max(1, distinctSignals);
+
   // ── Key Number Proximity ─────────────────────────────────────────────────────
   // Flags when the spread line is within 0.5 of a key number
   const KEY_NUMBERS = [3, 7, 10, 14, 17];
@@ -658,7 +669,7 @@ function analyze(game, spRatings = {}, sport, macroRest = {}) {
     overVetoTeam: (leanSP?.defRank <= 8 ? leanDisp2 : null) || (dogSP?.defRank <= 8 ? dogDisp2 : null),
   } : null;
 
-  return {optimal:bets[0],bets,sig,tags,impl,conScore,sharpScore,mlVacuum,impliedTotals,keyNum,rlm,spFlag,gap,lm,leanDisp:leanDisp2,macroDetail};
+  return {optimal:bets[0],bets,sig,tags,impl,conScore,sharpScore,mlVacuum,impliedTotals,keyNum,rlm,spFlag,gap,lm,leanDisp:leanDisp2,macroDetail,marketClusterPasses};
 }
 
 // ─── Signal Explainability ─────────────────────────────────────────────────────
@@ -701,6 +712,7 @@ function explainSignals(a) {
       verdict: tags.MARKET
         ? `Lit because implied probability (${pct(impl)}) clears the 54% floor.`
         : `Unlit because implied probability (${pct(impl)}) is at or below 54% — market isn't leaning hard enough on its own to confirm.`,
+      caveat: `Scoring note: MARKET, CONFIRM, and VALUE all key off the same Pinnacle-vs-DK price relationship, so a single sharp move often lights up all three together. They're shown individually here for diagnosis, but the overall signal-strength score (top of card) counts them as one "market cluster" family, not three separate confirmations — currently ${a.marketClusterPasses ?? 0} of 3 in this cluster are lit.`,
     },
     CONFIRM: {
       layer: "Layer 3 · Confirm (Correlated)",
@@ -711,6 +723,7 @@ function explainSignals(a) {
       verdict: tags.CONFIRM
         ? `Lit — price gap (${gap!=null?gap.toFixed(3):"—"}) is tight and ${pct(conScore)} of tracked books agree.`
         : `Unlit — either the DK/Pinnacle price gap is too wide, book consensus is below 60%, or both.`,
+      caveat: "Scoring note: counted as part of the same \"market cluster\" family as MARKET and VALUE (see MARKET's caveat) — not a fully independent confirmation.",
     },
     VALUE: {
       layer: "Layer 4 · Value",
@@ -721,6 +734,7 @@ function explainSignals(a) {
       verdict: tags.VALUE
         ? `Lit — DK is pricing ${(edgeTop*100).toFixed(2)}% better than Pinnacle fair value on the top bet.`
         : `Unlit — DK's price is within 1% of Pinnacle fair value (or worse), so there's no real CLV edge to capture yet.`,
+      caveat: "Scoring note: counted as part of the same \"market cluster\" family as MARKET and CONFIRM (see MARKET's caveat) — not a fully independent confirmation.",
     },
     STEAM: {
       layer: "Cross-cutting · Steam",
@@ -791,8 +805,8 @@ function Callout({icon, color, bg, border, title, children, compact, marginBotto
 }
 
 function SignalBars({count}){
-  const col=count===4?"#f59e0b":count===3?"#6ee7b7":count===2?C.info:"#334155";
-  return(<div style={{display:"flex",alignItems:"flex-end",gap:2}}>{[1,2,3,4].map(i=><div key={i} style={{width:5,height:4+i*4,background:i<=count?col:"#1c2825",borderRadius:1}}/>)}</div>);
+  const col=count===3?"#f59e0b":count===2?"#6ee7b7":count===1?C.info:"#334155";
+  return(<div style={{display:"flex",alignItems:"flex-end",gap:2}}>{[1,2,3].map(i=><div key={i} style={{width:5,height:4+i*5,background:i<=count?col:"#1c2825",borderRadius:1}}/>)}</div>);
 }
 
 function Tag({label,active,color,onClick}){
@@ -1576,7 +1590,7 @@ function GameCard({rawGame, onLogBet, spRatings={}, sport, macroRest={}}){
           <div style={{display:"flex",alignItems:"center",gap:6,justifyContent:"flex-end"}}>
             {steamDetected&&<span style={{fontSize:8,color:C.steam,background:C.steamBg,border:`1px solid ${C.steamBorder}`,borderRadius:3,padding:"2px 5px"}}>🔥 STEAM</span>}
             <SignalBars count={sig}/>
-            <span style={{fontSize:9,color:sig===4?"#f59e0b":C.textDim}}>{sig}/4</span>
+            <span style={{fontSize:9,color:sig===3?"#f59e0b":C.textDim}}>{sig}/3</span>
           </div>
         </div>
       </div>
@@ -1826,7 +1840,7 @@ export default function App(){
         </div>
 
         <div style={{display:"flex",gap:4,marginBottom:8}}>
-          {[1,2,3,4].map(n=>(
+          {[1,2,3].map(n=>(
             <button key={n} onClick={()=>setSigFilter(n)} aria-pressed={sigFilter===n} style={{padding:"4px 12px",borderRadius:R.pill,border:`1px solid ${sigFilter===n?C.selectedBorder:C.cardBorder}`,background:sigFilter===n?C.selectedBg:"transparent",color:sigFilter===n?C.text:C.textMuted,fontSize:10,fontWeight:600,cursor:"pointer"}}>Signal {n}+</button>
           ))}
         </div>
@@ -1844,7 +1858,7 @@ export default function App(){
       </div>
 
       <div style={{padding:"8px 14px",display:"flex",gap:14,borderBottom:`1px solid ${C.cardBorder}`,flexWrap:"wrap"}}>
-        {[["#f59e0b","4/4 Max"],["#6ee7b7","3/4 High"],[C.info,"2/4 Dev"],["#334155","1/4 Watch"],["#f87171","🔥 Steam"]].map(([c,l])=>(
+        {[["#f59e0b","3/3 Max"],["#6ee7b7","2/3 High"],[C.info,"1/3 Dev"],["#f87171","🔥 Steam"]].map(([c,l])=>(
           <span key={l} style={{fontSize:9,color:C.textMuted,display:"flex",alignItems:"center",gap:4}}>
             <span style={{width:6,height:6,borderRadius:R.circle,background:c,display:"inline-block"}}/>{l}
           </span>
