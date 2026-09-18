@@ -23,19 +23,34 @@ const { getStore } = require("@netlify/blobs");
 
 const SERVER_CACHE_TTL_MS = 5 * 60 * 1000;      // 5 min — absorbs bursts/duplicate hits without staling data much
 const GLOBAL_HOURLY_CAP = 40;                    // live upstream calls per rolling hour, across ALL callers
+const UPSTREAM_TIMEOUT_MS = 8000;                // fail fast with a real error instead of a silent platform 502
 
 function cacheKeyFor(p) {
   return `odds:${p.sportKey}:${p.bookmakers||""}:${p.markets}:${p.regions}:${p.commenceTimeFrom||""}:${p.commenceTimeTo||""}`;
 }
 
+// Everything Blobs-related is a nice-to-have (quota protection), never load-
+// bearing — if the store can't even be opened, or any read/write on it throws
+// for any reason, these all resolve to "act as if there's no cache" rather than
+// letting the error escape and crash the whole function. A previous version of
+// this file called getStore() at the top level, outside any try/catch — if
+// that ever threw, it took the whole request down as a bare platform 502 with
+// no JSON body (same failure mode nfl-context.js already documents for a slow
+// ESPN response). This version never lets a caching failure become a user-
+// facing outage of the actual feature.
+function safeGetStore(name) {
+  try { return getStore(name); } catch { return null; }
+}
 async function getCached(store, key) {
+  if (!store) return null;
   try { return await store.get(key, { type: "json" }); } catch { return null; }
 }
 async function setCached(store, key, value) {
-  try { await store.setJSON(key, value); } catch { /* fail open — caching is a nice-to-have, not load-bearing */ }
+  if (!store) return;
+  try { await store.setJSON(key, value); } catch { /* fail open */ }
 }
-
 async function checkGlobalCap(store) {
+  if (!store) return true; // no store → can't track a cap → fail open
   const now = Date.now();
   let rec = null;
   try { rec = await store.get("global-hourly-count", { type: "json" }); } catch {}
@@ -45,46 +60,56 @@ async function checkGlobalCap(store) {
   return rec.count <= GLOBAL_HOURLY_CAP;
 }
 
+async function fetchUpstream(url, timeoutMs) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 exports.handler = async (event) => {
-  const key = process.env.ODDS_API_KEY;
-  if (!key) {
-    return { statusCode: 500, body: JSON.stringify({ error: "ODDS_API_KEY not configured in Netlify environment variables" }) };
-  }
+  try {
+    const key = process.env.ODDS_API_KEY;
+    if (!key) {
+      return { statusCode: 500, body: JSON.stringify({ error: "ODDS_API_KEY not configured in Netlify environment variables" }) };
+    }
 
-  const {
-    sportKey,
-    regions = "us",
-    markets = "h2h,spreads,totals",
-    oddsFormat = "american",
-    bookmakers,
-    commenceTimeFrom,
-    commenceTimeTo,
-  } = event.queryStringParameters || {};
+    const {
+      sportKey,
+      regions = "us",
+      markets = "h2h,spreads,totals",
+      oddsFormat = "american",
+      bookmakers,
+      commenceTimeFrom,
+      commenceTimeTo,
+    } = event.queryStringParameters || {};
 
-  if (!sportKey) {
-    return { statusCode: 400, body: JSON.stringify({ error: "sportKey is required" }) };
-  }
+    if (!sportKey) {
+      return { statusCode: 400, body: JSON.stringify({ error: "sportKey is required" }) };
+    }
 
-  const store = getStore("odds-cache");
-  const cacheKey = cacheKeyFor({ sportKey, regions, markets, oddsFormat, bookmakers, commenceTimeFrom, commenceTimeTo });
-  const cached = await getCached(store, cacheKey);
-  const now = Date.now();
+    const store = safeGetStore("odds-cache");
+    const cacheKey = cacheKeyFor({ sportKey, regions, markets, oddsFormat, bookmakers, commenceTimeFrom, commenceTimeTo });
+    const cached = await getCached(store, cacheKey);
+    const now = Date.now();
 
-  if (cached && now - cached.ts < SERVER_CACHE_TTL_MS) {
-    return {
-      statusCode: 200,
-      headers: {
-        "Content-Type": "application/json",
-        ...(cached.requestsRemaining != null ? { "x-requests-remaining": String(cached.requestsRemaining) } : {}),
-        "x-server-cache": "hit",
-      },
-      body: JSON.stringify(cached.data),
-    };
-  }
+    if (cached && now - cached.ts < SERVER_CACHE_TTL_MS) {
+      return {
+        statusCode: 200,
+        headers: {
+          "Content-Type": "application/json",
+          ...(cached.requestsRemaining != null ? { "x-requests-remaining": String(cached.requestsRemaining) } : {}),
+          "x-server-cache": "hit",
+        },
+        body: JSON.stringify(cached.data),
+      };
+    }
 
-  const underCap = await checkGlobalCap(store);
-  if (!underCap) {
-    if (cached) {
+    const underCap = await checkGlobalCap(store);
+    if (!underCap && cached) {
       // Over the global hourly cap — serve the last known data (even if stale)
       // rather than spend another live credit. Better a slightly old line than
       // no line and no protection for the monthly quota.
@@ -98,19 +123,39 @@ exports.handler = async (event) => {
         body: JSON.stringify(cached.data),
       };
     }
-    // No cache at all yet for this exact query — let it through rather than
-    // returning nothing; the cap mainly bites repeat/bot traffic, not the very
-    // first legitimate request for a given sport.
-  }
+    // Either under the cap, or over it with no cache at all yet for this exact
+    // query — let the live call through rather than returning nothing; the cap
+    // mainly bites repeat/bot traffic, not the very first legitimate request.
 
-  const params = new URLSearchParams({ apiKey: key, regions, markets, oddsFormat });
-  if (bookmakers) params.set("bookmakers", bookmakers);
-  if (commenceTimeFrom) params.set("commenceTimeFrom", commenceTimeFrom);
-  if (commenceTimeTo) params.set("commenceTimeTo", commenceTimeTo);
+    const params = new URLSearchParams({ apiKey: key, regions, markets, oddsFormat });
+    if (bookmakers) params.set("bookmakers", bookmakers);
+    if (commenceTimeFrom) params.set("commenceTimeFrom", commenceTimeFrom);
+    if (commenceTimeTo) params.set("commenceTimeTo", commenceTimeTo);
 
-  try {
-    const res = await fetch(`https://api.the-odds-api.com/v4/sports/${sportKey}/odds/?${params.toString()}`);
-    const data = await res.json();
+    let res, data;
+    try {
+      res = await fetchUpstream(`https://api.the-odds-api.com/v4/sports/${sportKey}/odds/?${params.toString()}`, UPSTREAM_TIMEOUT_MS);
+      data = await res.json();
+    } catch (e) {
+      const timedOut = e.name === "AbortError";
+      // If the live call fails and we have ANY cached copy (even long stale),
+      // serve it rather than surfacing a hard error — a stale line beats no
+      // line, and this is exactly the kind of failure (slow/unreachable
+      // upstream) a cache should be absorbing for the user.
+      if (cached) {
+        return {
+          statusCode: 200,
+          headers: {
+            "Content-Type": "application/json",
+            ...(cached.requestsRemaining != null ? { "x-requests-remaining": String(cached.requestsRemaining) } : {}),
+            "x-server-cache": "stale-upstream-error",
+          },
+          body: JSON.stringify(cached.data),
+        };
+      }
+      return { statusCode: 502, body: JSON.stringify({ error: timedOut ? "Odds API request timed out" : e.message }) };
+    }
+
     if (!res.ok) {
       return { statusCode: res.status, body: JSON.stringify({ error: data?.message || `Odds API error ${res.status}` }) };
     }
@@ -126,6 +171,8 @@ exports.handler = async (event) => {
       body: JSON.stringify(data),
     };
   } catch (e) {
-    return { statusCode: 502, body: JSON.stringify({ error: e.message }) };
+    // Last-resort catch-all: whatever broke, return a real JSON error instead
+    // of letting the function crash into a bare platform 502 with no body.
+    return { statusCode: 502, body: JSON.stringify({ error: `Unexpected error: ${e.message}` }) };
   }
 };
